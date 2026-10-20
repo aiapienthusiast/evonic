@@ -82,7 +82,7 @@ html.dark {
 
 /* Chat bubble markdown prose (compact, used in both agent Test Chat and Sessions) */
 /* Workplace switch marker in chat history (see buildWorkplaceSwitchMarker) */
-.chat-wp-switch { display: flex; align-items: center; gap: .75rem; margin: .25rem 0; color: #6b7280; font-size: .75rem; }
+.chat-wp-switch { display: flex; align-items: center; gap: .75rem; margin: 1.25rem 0; color: #6b7280; font-size: .75rem; }
 .chat-wp-switch-line { flex: 1 1 0; height: 1px; background: rgb(148 163 184 / .35); }
 .chat-wp-switch-label { flex: 0 1 auto; min-width: 0; max-width: 80%; padding: .1875rem .625rem; border: 1px solid rgb(148 163 184 / .35); border-radius: 9999px;
     background: rgb(148 163 184 / .08); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1436,7 +1436,7 @@ html.dark .ev-toast-info .ev-toast-ic { background: rgb(99 102 241 / .24); color
 .ev-cb-native { display: none !important; }
 .ev-cb-trigger { display: flex; align-items: center; justify-content: space-between; gap: .5rem; width: 100%; padding: .625rem .875rem; border: 1px solid #d1d5db; border-radius: .625rem; background: #fff; color: #111827; font: inherit; font-size: .875rem; line-height: 1.25rem; text-align: left; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
 .ev-cb-trigger:hover { border-color: #94a3b8; }
-.ev-cb-trigger:focus-visible, .ev-cb.is-open .ev-cb-trigger { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgb(99 102 241 / .18); }
+.ev-cb-trigger:focus-visible, .ev-cb.is-open .ev-cb-trigger { outline: none; border-color: #6366f1; box-shadow: none; }
 .ev-cb-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ev-cb-label.is-placeholder { color: #94a3b8; }
 .ev-cb-chev { flex: none; display: inline-flex; color: #94a3b8; transition: transform .18s ease; }
@@ -1445,7 +1445,7 @@ html.dark .ev-toast-info .ev-toast-ic { background: rgb(99 102 241 / .24); color
 .ev-cb.is-disabled .ev-cb-trigger { opacity: .55; cursor: not-allowed; }
 html.dark .ev-cb-trigger { background: rgb(10 15 28 / .65); border-color: rgb(148 163 184 / .28); color: #f1f5f9; }
 html.dark .ev-cb-trigger:hover { border-color: rgb(148 163 184 / .5); }
-html.dark .ev-cb-trigger:focus-visible, html.dark .ev-cb.is-open .ev-cb-trigger { border-color: #818cf8; box-shadow: 0 0 0 3px rgb(99 102 241 / .28); }
+html.dark .ev-cb-trigger:focus-visible, html.dark .ev-cb.is-open .ev-cb-trigger { border-color: #818cf8; box-shadow: none; }
 .ev-cb-pop { position: fixed; z-index: 10001; display: flex; flex-direction: column; box-sizing: border-box; padding: .375rem; border-radius: .75rem; background: rgb(255 255 255 / .97); border: 1px solid rgb(148 163 184 / .35);
   -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); box-shadow: 0 1px 2px rgb(15 23 42 / .06), 0 18px 40px -14px rgb(15 23 42 / .4);
   opacity: 0; transform: translateY(-4px) scale(.985); transform-origin: top; transition: opacity .12s ease, transform .16s cubic-bezier(.2, .8, .2, 1); }
@@ -1455,7 +1455,7 @@ html.dark .ev-cb-pop { background: rgb(30 41 59 / .97); border-color: rgb(148 16
 .ev-cb-search { position: relative; flex: none; margin: .125rem .125rem .375rem; }
 .ev-cb-search svg { position: absolute; left: .75rem; top: 50%; width: 15px; height: 15px; transform: translateY(-50%); color: #94a3b8; pointer-events: none; }
 .ev-cb-search input { width: 100%; box-sizing: border-box; height: 2.25rem; padding: 0 .75rem 0 2.125rem; border: 1px solid rgb(148 163 184 / .35); border-radius: .75rem; background: rgb(148 163 184 / .1); color: inherit; font: inherit; font-size: .8125rem; outline: none; }
-.ev-cb-search input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgb(99 102 241 / .18); }
+.ev-cb-search input:focus { outline: none; border-color: #6366f1; box-shadow: none; }
 html.dark .ev-cb-search input { color: #f1f5f9; }
 .ev-cb-list { overflow-y: auto; overscroll-behavior: contain; min-height: 0; scrollbar-width: thin; }
 .ev-cb-group { padding: .5rem .625rem .25rem; font-size: .6875rem; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: #94a3b8; }

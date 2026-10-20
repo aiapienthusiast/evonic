@@ -824,6 +824,21 @@ def run_tool_loop(agent: Dict[str, Any],
     _active_fallback_model_name = None  # for system message injection
     _using_global_default_model = False
 
+    # Per-session model override (chosen from the chat's model dialog). It only
+    # applies to this session: the agent's primary/fallback config is untouched.
+    _session_model_override = None
+    try:
+        _ov_id = (_session_data or {}).get('model_override_id') if isinstance(_session_data, dict) else None
+        if _ov_id:
+            _ov_model = db.get_model_by_id(_ov_id)
+            if _ov_model and _ov_model.get('enabled', True):
+                _session_model_override = _ov_model
+                agent_model_config = _build_model_config(_ov_model)
+                _logger.info("%s using session model override: %s (%s)", agent_id,
+                             _ov_model.get('name'), _ov_model.get('model_name'))
+    except Exception as e:
+        _logger.warning("Failed to apply session model override for %s: %s", agent_id, e)
+
     # Step 1: Check agent_state for persisted fallback model (cross-session).
     # If a fallback was persisted from a prior session, PROBE the primary model
     # first.  If it recovered, clear the flag and use it.  Otherwise fall through
@@ -831,7 +846,7 @@ def run_tool_loop(agent: Dict[str, Any],
     try:
         _as_raw = db.get_agent_state(agent_id)
         _as = json.loads(_as_raw) if _as_raw else {}
-        _fb_id = _as.get('active_fallback_model_id')
+        _fb_id = None if _session_model_override else _as.get('active_fallback_model_id')
         if _fb_id:
             _fb_model = db.get_model_by_id(_fb_id)
             if _fb_model and _fb_model.get('enabled', True):
@@ -1735,7 +1750,7 @@ def run_tool_loop(agent: Dict[str, Any],
                         result = _fallback_result
                         _request = _fallback_request
                         _fallback_succeeded = True
-                        if not _using_global_fallback:
+                        if not _using_global_fallback and not _session_model_override:
                             # Persist per-agent fallback model ID to agent_state.
                             try:
                                 _as_raw = db.get_agent_state(agent_id)

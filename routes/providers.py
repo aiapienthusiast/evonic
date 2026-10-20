@@ -100,6 +100,16 @@ def api_delete_provider(provider_id):
     if not provider:
         return jsonify({"success": False, "error": "Provider not found"}), 404
 
+    if request.args.get("cascade") in ("1", "true"):
+        try:
+            removed = db.delete_provider_cascade(provider_id)
+        except ValueError:
+            return jsonify({
+                "success": False,
+                "error": "One of its models is the global default. Set another model as default first.",
+            }), 409
+        return jsonify({"success": True, "models_removed": removed})
+
     success = db.delete_provider(provider_id)
     if not success:
         return jsonify(
@@ -107,6 +117,14 @@ def api_delete_provider(provider_id):
         ), 409
 
     return jsonify({"success": True})
+
+
+@providers_bp.route("/api/providers/<provider_id>/delete-impact", methods=["GET"])
+def api_provider_delete_impact(provider_id):
+    """Preview for the delete dialog: its models, the agents using them, and any default."""
+    if not db.get_provider(provider_id):
+        return jsonify({"success": False, "error": "Provider not found"}), 404
+    return jsonify({"success": True, **db.get_provider_delete_impact(provider_id)})
 
 
 @providers_bp.route("/api/providers/<provider_id>/fetch-models", methods=["POST"])

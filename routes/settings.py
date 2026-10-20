@@ -329,6 +329,7 @@ def api_list_tools():
             'enable_atg': bool(agent.get('enable_atg')) and bool(agent.get('enable_agent_state')),
             'enable_cmp': bool(agent.get('enable_cmp')) and bool(agent.get('enable_agent_state')),
             'always_execute': bool(agent.get('always_execute')),
+            'workplace_switch_enabled': bool(agent.get('workplace_switch_enabled')),
         }
 
     # Built-ins are filtered by the selected agent's feature settings when supplied.

@@ -186,7 +186,7 @@
         var danger = opts.danger !== false;
 
         $('#confirmTitle').text(opts.title || 'Confirm');
-        $('#confirmMessage').text(opts.message || '');
+        $('#confirmMessage').text(opts.message || '').css('white-space', 'pre-line');   // messages may list items on separate lines
         $('#confirmOkBtn').text(opts.confirmText || 'Confirm');
         $('#confirmCancelBtn').text(opts.cancelText || 'Cancel');
 

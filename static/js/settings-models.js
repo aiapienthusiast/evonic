@@ -6,6 +6,8 @@ window.settingsModels = {
     models: [],
     providers: [],
     searchQuery: "",
+    statusFilter: "all",
+    _pings: {},   // last ping result per model id, kept across re-renders
     _currentTestModelId: null,
     _fetchProviderId: null,
     _authProviderId: null,
@@ -13,6 +15,11 @@ window.settingsModels = {
     _authPollTimer: null,
 
     async init() {
+        if (!this._menuHandlersBound) {
+            this._menuHandlersBound = true;
+            document.addEventListener("click", () => this.closeMenus());
+            document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") this.closeMenus(); });
+        }
         await this.load();
     },
 
@@ -48,20 +55,25 @@ window.settingsModels = {
         const modelsList = document.getElementById("models-list");
         const q = this.searchQuery.toLowerCase().trim();
 
-        const filtered = q
-            ? this.models.filter(
-                  (m) =>
-                      (m.name || "").toLowerCase().includes(q) ||
-                      (m.provider || "").toLowerCase().includes(q) ||
-                      (m.model_name || "").toLowerCase().includes(q),
-              )
-            : this.models;
+        const byStatus = (m) =>
+            this.statusFilter === "on" ? Boolean(m.enabled)
+            : this.statusFilter === "think" ? Boolean(m.thinking)
+            : true;
+        const filtered = this.models.filter(
+            (m) =>
+                byStatus(m) &&
+                (!q ||
+                    (m.name || "").toLowerCase().includes(q) ||
+                    (m.provider || "").toLowerCase().includes(q) ||
+                    (m.model_name || "").toLowerCase().includes(q)),
+        );
 
         // Group models by provider, and ensure ALL providers appear (even with 0 models)
         const provMap = {};
         for (const p of this.providers) provMap[p.id] = p;
         const groups = {};
         for (const p of this.providers) {
+            if (this.statusFilter !== "all") continue;   // a status filter lists only providers that have matching models
             const matchesSearch = !q || (p.name || "").toLowerCase().includes(q) || p.id.toLowerCase().includes(q);
             if (matchesSearch) groups[p.id] = [];
         }
@@ -84,116 +96,237 @@ window.settingsModels = {
         });
 
         modelsList.innerHTML = sortedProviders
-            .map((pid) => {
-                const prov = provMap[pid] || { id: pid, name: pid };
-                const models = groups[pid];
-                const typeBadge =
-                    prov.type === "local"
-                        ? '<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">local</span>'
-                        : '<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">remote</span>';
-
-                const modelCards = models.length > 0
-                    ? models.map((model) => this._renderModelCard(model)).join("")
-                    : `<div class="col-span-full text-center py-4 text-sm text-gray-400 dark:text-gray-500">No models yet — click <strong>Fetch Models</strong> to discover available models from this provider.</div>`;
-
-                const hasCredentialSetup = ["codex", "anthropic", "claude_cli"].includes(prov.api_format);
-                const connected = Boolean(prov.credential_configured);
-
-                let actionButtons;
-                const addModelBtn = `<button class="px-2 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors" onclick="settingsModels.addModelForProvider('${pid}')" title="Add a custom model">+ Model</button>`;
-                if (hasCredentialSetup) {
-                    const status = connected
-                        ? '<span class="inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>Ready</span>'
-                        : '<span class="inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-300"><span class="w-2 h-2 rounded-full bg-amber-500"></span>Setup needed</span>';
-                    actionButtons = `${status}` +
-                        `<button class="px-2 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/50 focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-colors" onclick="settingsModels.openCredentialSetup('${pid}')">${connected ? "Manage login" : "Set up"}</button>` +
-                        (connected ? `<button class="px-2 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors" onclick="settingsModels.fetchModels('${pid}')" title="Discover models">Fetch Models</button>` : "") +
-                        addModelBtn +
-                        `<button class="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 rounded hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors" onclick="settingsModels.editProvider('${pid}')" title="Edit provider settings">Edit</button>` +
-                        `<button class="px-2 py-1 text-xs font-medium text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-950/50 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors" onclick="settingsModels.deleteProvider('${pid}')" title="Delete provider">Del</button>`;
-                } else {
-                    actionButtons =
-                        `<button class="px-2 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors" onclick="settingsModels.fetchModels('${pid}')" title="Discover models from provider API">Fetch Models</button>` +
-                        addModelBtn +
-                        `<button class="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 rounded hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors" onclick="settingsModels.testProvider('${pid}')" title="Test provider connection">Test</button>` +
-                        `<button class="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 rounded hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors" onclick="settingsModels.editProvider('${pid}')" title="Edit provider settings">Edit</button>` +
-                        `<button class="px-2 py-1 text-xs font-medium text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-950/50 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors" onclick="settingsModels.deleteProvider('${pid}')" title="Delete provider">Del</button>`;
-                }
-
-                return `
-                    <div class="provider-group">
-                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2 px-1">
-                            <div class="flex items-center gap-2">
-                                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">${this._escapeHtml(prov.name)}</h3>
-                                ${typeBadge}
-                                <span class="text-xs text-gray-400">${models.length} model${models.length !== 1 ? "s" : ""}</span>
-                            </div>
-                            <div class="flex flex-wrap items-center gap-1.5">
-                                ${actionButtons}
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            ${modelCards}
-                        </div>
-                    </div>`;
-            })
-            .join('<hr class="my-6 border-gray-200 dark:border-gray-700">');
+            .map((pid) => this._renderProvider(pid, provMap[pid] || { id: pid, name: pid }, groups[pid]))
+            .join("");
     },
 
-    _renderModelCard(model) {
-        const typeColors =
-            model.type === "remote"
-                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
-                : "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300";
-        const enabledColors = model.enabled
-            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300"
-            : "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300";
-        const defaultBorder = model.is_default
-            ? "border-indigo-400 dark:border-indigo-500 ring-1 ring-indigo-200 dark:ring-indigo-800"
-            : "border-gray-200 dark:border-gray-700";
-        const shortcode = model.shortcode != null ? model.shortcode : "?";
+    // ---- Provider block + model cards (see .mcd-* in settings.css) ----
+    _ICON: {
+        star: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>',
+        dots: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
+        bolt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 4 14h7l-1 7 9-11h-7z"/></svg>',
+        edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+        copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+        trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14"/></svg>',
+        brain: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a4 4 0 0 0-4 4 3 3 0 0 0-2 5 3 3 0 0 0 2 5 4 4 0 0 0 4 4zM12 3a4 4 0 0 1 4 4 3 3 0 0 1 2 5 3 3 0 0 1-2 5 4 4 0 0 1-4 4z"/></svg>',
+        check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+        eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+        plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+        refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/></svg>',
+        play: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4l14 8-14 8z"/></svg>',
+        key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9m-3 3 3 3"/></svg>',
+    },
+
+    _fmtTokens(n) {
+        n = Number(n) || 0;
+        if (n <= 0) return "";
+        if (n >= 1000000) return (n / 1000000).toFixed(n % 1000000 ? 1 : 0) + "M";
+        if (n >= 1000) return Math.round(n / 1000) + "K";
+        return String(n);
+    },
+
+    // Claude CLI models use an effort level (mirrors backend resolve_effort); others show their token budget.
+    _thinkLabel(model) {
+        const budget = Number(model.thinking_budget) || 0;
+        if (model.api_format === "claude_cli") {
+            const lvl = budget <= 0 ? "medium" : budget <= 2048 ? "low" : budget <= 8192 ? "medium"
+                : budget <= 24576 ? "high" : budget <= 65536 ? "xhigh" : "max";
+            return "Thinking · " + lvl;
+        }
+        return budget > 0 ? "Thinking · " + this._fmtTokens(budget) : "Thinking";
+    },
+
+    _decisionReady(model) {
         const operations = (model.capabilities && model.capabilities.operations) || {};
         const schemaVersions = (model.capabilities && model.capabilities.schema_versions) || [];
-        const decisionCompatible = Boolean(
+        return Boolean(
             operations.decision && operations.decision !== "unsupported" &&
             operations.strict_output && operations.strict_output !== "unsupported" &&
             Array.isArray(schemaVersions) && schemaVersions.includes("decision-schema/v1"),
         );
-        const decisionBadge = decisionCompatible
-            ? '<span class="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-100">Decision ready</span>'
-            : '<span class="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">Not decision compatible</span>';
+    },
+
+    _renderProvider(pid, prov, models) {
+        const I = this._ICON;
+        const e = (v) => this._escapeHtml(v);
+        const apiFormat = prov.api_format;
+        const hasCredentialSetup = ["codex", "anthropic", "claude_cli"].includes(apiFormat);
+        const connected = Boolean(prov.credential_configured);
+        const kind = prov.type === "local" ? "Local" : "Remote";
+
+        let status = "";
+        let primary = "";
+        if (hasCredentialSetup) {
+            status = connected
+                ? '<span class="mcd-pill ok"><span class="mcd-dot"></span>Ready</span>'
+                : '<span class="mcd-pill warn"><span class="mcd-dot"></span>Setup needed</span>';
+            if (!connected) {
+                primary = `<button type="button" class="mcd-btn primary" onclick="settingsModels.openCredentialSetup('${pid}')">${I.key}Set up</button>`;
+            } else {
+                primary = `<button type="button" class="mcd-btn" onclick="settingsModels.fetchModels('${pid}')" title="Discover models from this provider">${I.refresh}Fetch models</button>`;
+            }
+        } else {
+            primary = `<button type="button" class="mcd-btn" onclick="settingsModels.fetchModels('${pid}')" title="Discover models from the provider API">${I.refresh}Fetch models</button>`;
+        }
+        const addModel = `<button type="button" class="mcd-btn" onclick="settingsModels.addModelForProvider('${pid}')" title="Add a custom model">${I.plus}Model</button>`;
+        const menu =
+            (hasCredentialSetup
+                ? `<button role="menuitem" type="button" onclick="settingsModels.openCredentialSetup('${pid}')">${I.key}${connected ? "Manage login" : "Set up"}</button>`
+                : `<button role="menuitem" type="button" onclick="settingsModels.testProvider('${pid}')">${I.bolt}Test connection</button>`) +
+            `<button role="menuitem" type="button" onclick="settingsModels.editProvider('${pid}')">${I.edit}Edit provider</button>` +
+            `<hr><button role="menuitem" type="button" class="danger" onclick="settingsModels.deleteProvider('${pid}')">${I.trash}Delete provider</button>`;
+
+        const cards = models.length
+            ? models.map((m) => this._renderModelCard(m, prov)).join("")
+            : `<div class="mcd-empty">No models yet. Use <strong>Fetch models</strong> to discover what this provider offers, or add one by hand.</div>`;
 
         return `
-        <div class="model-card bg-white dark:bg-gray-800 rounded-lg border ${defaultBorder} p-3 hover:shadow-sm transition-shadow flex flex-col gap-2">
-            <div class="flex items-start justify-between gap-2">
-                <div class="flex items-center gap-2 min-w-0">
-                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 text-[11px] font-bold text-gray-600 dark:text-gray-300 flex-shrink-0">${shortcode}</span>
-                    <h4 class="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate min-w-0">${model.name}</h4>
+        <section class="mcd-prov">
+            <div class="mcd-prov-head">
+                <div class="mcd-prov-id">
+                    ${this._logo({ provider: pid, provider_name: prov.name }, 22, "mcd-logo mcd-logo-sm")}
+                    <div class="mcd-prov-text">
+                        <div class="mcd-prov-name">${e(prov.name)}</div>
+                        <div class="mcd-prov-meta">${kind} · ${models.length} model${models.length !== 1 ? "s" : ""}</div>
+                    </div>
+                    ${status}
                 </div>
-                <div class="flex flex-row items-center gap-1.5 shrink-0">
-                    ${!model.is_default ? `<button class="p-1 rounded border border-amber-400 dark:border-amber-500 text-amber-500 dark:text-amber-400 bg-transparent cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-950/50 transition-colors" onclick="settingsModels.setDefault('${model.id}')" title="Set Default"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/></svg></button>` : ""}
-                    <button class="p-1 rounded border border-gray-300 dark:border-gray-600 bg-transparent cursor-pointer text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" onclick="settingsModels.testConnection('${model.id}')" title="Test"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg></button>
-                    <button class="p-1 rounded border border-indigo-400 dark:border-indigo-500 text-indigo-500 dark:text-indigo-400 bg-transparent cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors" onclick="settingsModels.edit('${model.id}')" title="Edit"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>
-                    <button class="p-1 rounded border border-emerald-400 dark:border-emerald-500 text-emerald-500 dark:text-emerald-400 bg-transparent cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors" onclick="settingsModels.clone('${model.id}')" title="Clone"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2" stroke-linecap="round"/></svg></button>
+                <div class="mcd-prov-actions">
+                    ${primary}${addModel}
+                    <div class="mcd-menuwrap">
+                        <button type="button" class="mcd-ib" aria-label="Provider actions" aria-haspopup="menu" aria-expanded="false" onclick="settingsModels.toggleMenu(event, this)">${I.dots}</button>
+                        <div class="mcd-menu" role="menu">${menu}</div>
+                    </div>
                 </div>
             </div>
+            <div class="mcd-grid">${cards}</div>
+        </section>`;
+    },
 
-            <div class="flex flex-wrap items-center gap-1.5">
-                ${model.is_default ? '<span class="inline-block bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none">Default</span>' : ""}
-                <span class="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium ${typeColors}">${model.type}</span>
-                <span class="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium ${enabledColors}">${model.enabled ? "On" : "Off"}</span>
-                ${model.thinking ? '<span class="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300">Thinking</span>' : ""}
-                ${decisionBadge}
-            </div>
+    // Brand mark (ai-logos.js); the provider's display name helps when the model name says nothing.
+    _logo(m, size, wrapClass) {
+        if (typeof aiLogoHtml !== "function") return "";
+        const prov = this.providers.find((p) => p.id === m.provider);
+        const html = aiLogoHtml({ ...m, provider_name: m.provider_name || (prov && prov.name) || "" }, size);
+        return wrapClass ? `<span class="${wrapClass}">${html}</span>` : html;
+    },
 
-            <div class="flex items-end justify-between gap-2">
-                <div class="text-[11px] text-gray-500 dark:text-gray-400 truncate min-w-0">
-                    ${model.model_name}
+    _renderModelCard(model, prov) {
+        const I = this._ICON;
+        const e = (v) => this._escapeHtml(v);
+        const id = model.id;
+        const name = model.name || model.model_name || id;
+        const ready = this._decisionReady(model);
+        const ctx = this._fmtTokens(model.context_window);
+        const shortcode = model.shortcode != null ? model.shortcode : "?";
+
+        let facts = "";
+        if (model.thinking) facts += `<span class="mcd-chip think">${I.brain}${e(this._thinkLabel(model))}</span>`;
+        if (model.vision_supported) facts += `<span class="mcd-chip">${I.eye}Vision</span>`;
+        if (ctx) facts += `<span class="mcd-chip">${ctx} context</span>`;
+        if (ready) facts += `<span class="mcd-chip ready">${I.check}Decision ready</span>`;
+
+        const state = model.enabled
+            ? (model.is_default ? "Default · enabled" : "Enabled")
+            : "Off";
+        const search = [name, model.model_name, prov && prov.name].join(" ").toLowerCase();
+
+        return `
+        <article class="mcd-card${model.is_default ? " is-default" : ""}${model.enabled ? "" : " is-off"}" data-on="${model.enabled ? 1 : 0}" data-think="${model.thinking ? 1 : 0}" data-search="${e(search)}">
+            <div class="mcd-head">
+                <span class="mcd-logo">${this._logo(model, 26)}${model.is_default ? `<span class="mcd-star" title="Default model">${I.star}</span>` : ""}</span>
+                <div class="mcd-title">
+                    <div class="mcd-name" title="${e(name)}">${e(name)}</div>
+                    <div class="mcd-id"><span title="${e(model.model_name)}">${e(model.model_name)}</span>
+                        <button type="button" class="mcd-copy" aria-label="Copy model id" data-id="${e(model.model_name)}" onclick="settingsModels.copyId(this)">${I.copy}</button></div>
                 </div>
-                ${decisionCompatible ? `<button class="text-[11px] text-indigo-600 dark:text-indigo-300 hover:underline" onclick="decisionModels.openPlayground({model: '${model.id}'})">Playground</button>` : ""}
-                <button class="p-1 rounded border border-red-400 dark:border-red-500 text-red-400 dark:text-red-400 bg-transparent cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/50 transition-colors shrink-0" onclick="settingsModels.remove('${model.id}')" title="Delete"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+                <div class="mcd-acts">
+                    <button type="button" class="mcd-ib mcd-test" aria-label="Ping ${e(name)}" title="Ping: send a short prompt to check this model answers" onclick="settingsModels.pingModel('${id}', this)">${I.bolt}</button>
+                    <div class="mcd-menuwrap">
+                        <button type="button" class="mcd-ib" aria-label="More actions" aria-haspopup="menu" aria-expanded="false" onclick="settingsModels.toggleMenu(event, this)">${I.dots}</button>
+                        <div class="mcd-menu" role="menu">
+                            ${model.is_default ? "" : `<button role="menuitem" type="button" onclick="settingsModels.setDefault('${id}')">${I.star}Set as default</button>`}
+                            <button role="menuitem" type="button" onclick="settingsModels.edit('${id}')">${I.edit}Edit</button>
+                            <button role="menuitem" type="button" onclick="settingsModels.clone('${id}')">${I.copy}Clone</button>
+                            ${ready ? `<button role="menuitem" type="button" onclick="decisionModels.openPlayground({model: '${id}'})">${I.play}Open playground</button>` : ""}
+                            <hr><button role="menuitem" type="button" class="danger" onclick="settingsModels.remove('${id}')">${I.trash}Delete</button>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </div>`;
+            ${facts ? `<div class="mcd-facts">${facts}</div>` : ""}
+            <div class="mcd-foot">
+                <span class="mcd-state"><span class="mcd-dot${model.enabled ? "" : " off"}"></span>${state}</span>
+                <span class="mcd-ping" aria-live="polite">${this._pingHtml(this._pings[id])}</span>
+                <span class="mcd-sc" title="Use /model ${shortcode} in chat">#${shortcode}</span>
+            </div>
+        </article>`;
+    },
+
+    // ---- ping: one short prompt through the model itself ----
+    _pingHtml(r) {
+        if (!r) return "";
+        if (r.busy) return '<span class="mcd-pingres busy">Pinging…</span>';
+        const e = (v) => this._escapeHtml(v);
+        if (r.success) {
+            const tip = r.reply ? `Replied: ${r.reply}` : "Model answered";
+            return `<span class="mcd-pingres ok" title="${e(tip)}">${this._ICON.check}Reachable · ${r.latency_ms} ms</span>`;
+        }
+        const msg = String(r.error || "No answer");
+        const short = msg.length > 42 ? msg.slice(0, 41) + "…" : msg;
+        return `<span class="mcd-pingres bad" title="${e(msg)}">Unreachable · ${e(short)}</span>`;
+    },
+
+    async pingModel(modelId, btn) {
+        const card = btn.closest(".mcd-card");
+        const slot = card && card.querySelector(".mcd-ping");
+        if (btn.classList.contains("is-busy")) return;
+        const show = (r) => { this._pings[modelId] = r; if (slot) slot.innerHTML = this._pingHtml(r); };
+        btn.classList.add("is-busy");
+        btn.disabled = true;
+        show({ busy: true });
+        try {
+            const res = await fetch("/api/models/" + encodeURIComponent(modelId) + "/ping", { method: "POST" });
+            show(await res.json());
+        } catch (error) {
+            show({ success: false, error: error.message });
+        } finally {
+            btn.classList.remove("is-busy");
+            btn.disabled = false;
+        }
+    },
+
+    // ---- popup menus / small helpers ----
+    toggleMenu(ev, btn) {
+        ev.stopPropagation();
+        const menu = btn.parentElement.querySelector(".mcd-menu");
+        const open = !menu.classList.contains("open");
+        this.closeMenus();
+        menu.classList.toggle("open", open);
+        btn.setAttribute("aria-expanded", String(open));
+    },
+
+    closeMenus() {
+        document.querySelectorAll(".mcd-menu.open").forEach((m) => {
+            m.classList.remove("open");
+            const b = m.parentElement.querySelector("button[aria-expanded]");
+            if (b) b.setAttribute("aria-expanded", "false");
+        });
+    },
+
+    copyId(btn) {
+        try {
+            navigator.clipboard.writeText(btn.dataset.id || "").catch(() => {});
+        } catch (err) { /* clipboard unavailable */ }
+        const prev = btn.innerHTML;
+        btn.innerHTML = this._ICON.check;
+        setTimeout(() => { btn.innerHTML = prev; }, 1200);
+    },
+
+    setStatusFilter(f) {
+        this.statusFilter = f;
+        document.querySelectorAll("#model-status-filter button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.f === f)));
+        this.render();
     },
 
     filter() {
@@ -269,17 +402,52 @@ window.settingsModels = {
     },
 
     async deleteProvider(providerId) {
-        if (
-            !(await showConfirm({
-                title: "Delete Provider",
-                message: "Delete this provider? Its models must be removed first.",
-                confirmText: "Delete",
-            }))
-        )
-            return;
+        const prov = this.providers.find((p) => p.id === providerId);
+        const label = (prov && prov.name) || providerId;
+        let impact;
         try {
-            const result = await apiDelete("/api/providers/" + encodeURIComponent(providerId));
+            impact = await apiGet("/api/providers/" + encodeURIComponent(providerId) + "/delete-impact");
+        } catch (error) {
+            if (window.toast) toast.show("Failed: " + error.message, "error");
+            return;
+        }
+        const n = (impact.models || []).length;
+        const cascade = n > 0;
+
+        if (impact.is_default) {
+            const def = impact.models.find((m) => m.is_default);
+            if (window.showConfirm) {
+                await showConfirm({
+                    title: "Cannot delete provider",
+                    message: `"${def ? def.name : "A model"}" in ${label} is the global default model.\nSet another model as default, then delete this provider.`,
+                    confirmText: "OK",
+                    cancelText: "Close",
+                    danger: false,
+                });
+            }
+            return;
+        }
+
+        let message = `Delete "${label}"?`;
+        if (cascade) {
+            const names = impact.models.map((m) => "• " + m.name);
+            const shown = names.slice(0, 8).concat(names.length > 8 ? [`… and ${names.length - 8} more`] : []);
+            message = `Delete "${label}" and its ${n} model${n !== 1 ? "s" : ""}?\n${shown.join("\n")}`;
+            if ((impact.agents || []).length) {
+                const agents = impact.agents.map((a) => a.name);
+                const list = agents.slice(0, 5).join(", ") + (agents.length > 5 ? ` and ${agents.length - 5} more` : "");
+                message += `\n\nAgents using them will fall back to the default model: ${list}.`;
+            }
+            if ((impact.profiles || []).length) {
+                message += `\nDecision profiles still pointing at them: ${impact.profiles.join(", ")}.`;
+            }
+        }
+        if (!(await showConfirm({ title: "Delete Provider", message, confirmText: cascade ? `Delete provider and ${n} model${n !== 1 ? "s" : ""}` : "Delete" }))) return;
+
+        try {
+            const result = await apiDelete("/api/providers/" + encodeURIComponent(providerId) + (cascade ? "?cascade=1" : ""));
             if (result.success) {
+                if (window.toast && cascade) toast.show(`Deleted ${label} and ${result.models_removed} model${result.models_removed !== 1 ? "s" : ""}`, "success");
                 await this.reload();
             } else {
                 if (window.toast) toast.show("Error: " + (result.error || "Failed"), "error");
@@ -735,7 +903,8 @@ window.settingsModels = {
     _escapeHtml(str) {
         const div = document.createElement("div");
         div.textContent = str;
-        return div.innerHTML;
+        // innerHTML leaves quotes alone; cards put these values inside attributes.
+        return div.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     },
 
     /* ---- Provider credential setup ---- */

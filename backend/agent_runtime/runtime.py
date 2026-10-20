@@ -1786,6 +1786,14 @@ class AgentRuntime:
             else:
                 model = db.get_agent_model(db_agent_id)
             model_id = model.get('id') if model else None
+            # A per-session model override gates on its own model's concurrency.
+            try:
+                _ss = json.loads(db.get_session_state(ctx.session_id, agent_id=db_agent_id) or '{}')
+                _ov = _ss.get('model_override_id') if isinstance(_ss, dict) else None
+                if _ov and db.get_model_by_id(_ov):
+                    model_id = _ov
+            except Exception:
+                pass
         except Exception as e:
             _logger.warning("Failed to resolve turn model for agent %s, proceeding without model gating: %s", agent_id, e)
             model_id = None
@@ -2464,6 +2472,7 @@ class AgentRuntime:
                 'messaging_acl_mode': agent.get('messaging_acl_mode', 'whitelist'),
                 'enable_atg': bool(agent.get('enable_atg')) and bool(agent.get('enable_agent_state')),
                 'enable_cmp': bool(agent.get('enable_cmp')) and bool(agent.get('enable_agent_state')),
+                'workplace_switch_enabled': bool(agent.get('workplace_switch_enabled')),
             }
         _last_user = chatlog.get_last_entry(types=frozenset({'user'}))
         assigned_tool_ids, tools = _apply_restart_origin_guard(

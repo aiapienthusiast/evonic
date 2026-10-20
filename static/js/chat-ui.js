@@ -2973,6 +2973,10 @@ class Turn {
             if (this._captureSavedArtifact(data)) this._renderSavedArtifacts();
             this._mergeToolResult(data);
             this._showThinkingRow();
+            // An agent that moved itself changed the workplace shown in the page header.
+            if (data && data.tool === 'switch_workplace' && !data.error) {
+                document.dispatchEvent(new CustomEvent('evonic:workplace-maybe-changed'));
+            }
             // Fire tool:executed for agent-state-bridge
             this._onTrigger('tool:executed', data);
             return;
@@ -3478,7 +3482,8 @@ class ChatUI {
 
     
     appendMessage(role, content, opts = {}) {
-        const hasMeta = opts.metadata && (opts.metadata.image_url || opts.metadata.attachment_info);
+        // workplace_switch has no text of its own: the divider is drawn from the metadata
+        const hasMeta = opts.metadata && (opts.metadata.image_url || opts.metadata.attachment_info || opts.metadata.workplace_switch);
         if (role !== 'error' && (!content || !content.trim()) && !hasMeta) {
             this._log.warn('appendMessage SKIPPED empty/whitespace content', role);
             return $();
@@ -3623,6 +3628,11 @@ class ChatUI {
                 let result;
                 try { result = JSON.parse(entry.content); } catch(e) { result = { data: entry.content }; }
                 thinkingTurn.ingest({ event: 'tool_executed', data: { tool: entry.function, result, error: !!entry.error }, seq: 0 });
+                // switch_workplace: end the bubble here and draw the divider, later steps start a new one.
+                if (entry.function === 'switch_workplace' && !entry.error && result && result.workplace_switch) {
+                    if (thinkingTurn) { thinkingTurn.ingest({ event: 'done', data: {}, seq: 0 }); thinkingTurn = null; }
+                    this.appendMessage('system', '', { metadata: { workplace_switch: result.workplace_switch }, timestamp: entry.ts || null });
+                }
                 continue;
             }
             if (entry.type === 'intermediate') {

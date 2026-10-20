@@ -121,15 +121,30 @@ html.dark .ask-option input:checked { border-color: #6366f1; background: #6366f1
     font-size: .625rem; font-weight: 700; line-height: 1.125rem; letter-spacing: .03em; text-transform: uppercase;
 }
 html.dark .ask-badge { background: rgb(16 185 129 / .15); border-color: rgb(16 185 129 / .35); color: #6ee7b7; }
-.ask-option-other { align-items: center; }
-.ask-other-text {
-    flex: 1; min-width: 0; padding: 0; border: 0; outline: none;
-    background: transparent; color: inherit; font-size: .875rem; caret-color: #6366f1;
+.ask-option-other { align-items: center; padding-block: .375rem; }
+/* "Other": a real field, not a bare line of text. The page's global input styles are
+   scoped to #agent-tab-area (light) and html.dark (dark), so these rules need !important. */
+.ask-card input.ask-other-text:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]) {
+    flex: 1; min-width: 0; height: 2.25rem; padding: 0 .875rem !important;
+    border: 1px solid rgb(148 163 184 / .5) !important; border-radius: .75rem !important;
+    background-color: transparent !important; box-shadow: none !important; outline: none;
+    color: inherit; font-size: .875rem; caret-color: #6366f1;
+    transition: border-color .15s, box-shadow .15s, background-color .15s;
 }
 .ask-other-text::placeholder { color: var(--ask-muted); opacity: 1; }
-/* The "Other" field sits inside an option row; keep it borderless over the global dark input style. */
+.ask-card input.ask-other-text:not([type="checkbox"]):not([type="radio"]):hover { border-color: #a5b4fc !important; }
+.ask-card input.ask-other-text:not([type="checkbox"]):not([type="radio"]):focus,
+.ask-option-other:has(.ask-other-toggle:checked) input.ask-other-text:not([type="checkbox"]):not([type="radio"]) {
+    border-color: #6366f1 !important; background-color: var(--ask-fill) !important;
+}
+.ask-card input.ask-other-text:not([type="checkbox"]):not([type="radio"]):focus { box-shadow: 0 0 0 3px rgb(99 102 241 / .2) !important; }
 html.dark .ask-card input.ask-other-text:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]) {
-    background-color: transparent !important; border-color: transparent !important;
+    border-color: rgb(148 163 184 / .35) !important; background-color: transparent !important;
+}
+html.dark .ask-card input.ask-other-text:not([type="checkbox"]):not([type="radio"]):hover { border-color: #6366f1 !important; }
+html.dark .ask-card input.ask-other-text:not([type="checkbox"]):not([type="radio"]):focus,
+html.dark .ask-option-other:has(.ask-other-toggle:checked) input.ask-other-text:not([type="checkbox"]):not([type="radio"]) {
+    border-color: #818cf8 !important; background-color: var(--ask-fill) !important;
 }
 
 /* ── Footer: sticky inside the scroller; buttons are the composer's icon button and send pill ── */

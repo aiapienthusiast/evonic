@@ -67,6 +67,8 @@ class ToolRegistry:
         self._builtins['builtin:recall_sessions'] = _builtin_recall_sessions_factory
         # Tool to clear active fallback flag from agent_state (agent calls this)
         self._builtins['builtin:reset_active_model'] = _builtin_reset_active_model_factory
+        # Opt-in: lets the agent move itself between workplaces (agents.workplace_switch_enabled)
+        self._builtins['builtin:switch_workplace'] = _builtin_switch_workplace_factory
 
     def _compute_json_mtimes(self) -> Optional[tuple]:
         """Return a tuple of (path, mtime) for every tools/*.json file.
@@ -255,6 +257,10 @@ class ToolRegistry:
                 return {"error": f"Tool backend '{function_name}' missing execute() function"}
             # Propagate live flags from agent_context (e.g. _skip_safety set after approval)
             ctx['_skip_safety'] = agent_context.get('_skip_safety', False)
+            # switch_workplace moves the agent mid-turn: later tool calls must follow it.
+            ctx['workplace_id'] = agent_context.get('workplace_id')
+            if 'workspace' in agent_context:
+                ctx['workspace'] = agent_context.get('workspace')
             try:
                 return module.execute(ctx, arguments)
             except Exception as e:
@@ -272,6 +278,8 @@ class ToolRegistry:
         if builtin_id in ('builtin:switch_path', 'builtin:new_path',
                           'builtin:read_transcript', 'builtin:forget_memory'):
             return bool(agent_context.get('enable_cmp'))
+        if builtin_id == 'builtin:switch_workplace':
+            return bool(agent_context.get('workplace_switch_enabled'))
         return True
 
     def get_builtin_tool_defs(self, agent_context: Optional[dict] = None) -> List[Dict[str, Any]]:
@@ -1562,3 +1570,85 @@ def _builtin_reset_active_model_factory(agent_context: dict):
             return {"error": f"Failed to reset active model: {str(e)}"}
 
     return tool_def, executor
+
+
+def _builtin_switch_workplace_factory(agent_context: dict):
+    """Factory for the opt-in 'switch_workplace' tool.
+
+    Exposed only when the agent has workplace_switch_enabled. Switching is
+    agent-wide (same as the chat header switcher) and takes effect for the
+    remaining tool calls of the current turn.
+    """
+    tool_def = {
+        "type": "function",
+        "function": {
+            "name": "switch_workplace",
+            "description": (
+                "Move yourself to another workplace (machine or environment where your "
+                "bash/file tools run). action='list' shows the workplaces you may use and "
+                "which one is current; action='switch' moves you to `workplace` (id or exact "
+                "name; 'local' for the local workspace). The switch is persistent and applies "
+                "to all your sessions, so switch only when the task needs that machine."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["list", "switch"]},
+                    "workplace": {"type": "string",
+                                  "description": "Workplace id or exact name (action='switch')."},
+                },
+                "required": ["action"],
+            },
+        },
+    }
+
+    def executor(arguments: dict) -> dict:
+        from models.db import db
+        from backend.workplaces import agent_switch
+
+        agent_id = agent_context.get('id', '')
+        agent = db.get_agent(agent_id) if agent_id else None
+        if not agent or not agent.get('workplace_switch_enabled'):
+            return {"error": "Workplace switching is not enabled for this agent."}
+        action = (arguments or {}).get('action')
+        if action == 'list':
+            return {"workplaces": agent_switch.list_options(agent)}
+        if action != 'switch':
+            return {"error": "action must be 'list' or 'switch'."}
+        target = (arguments or {}).get('workplace')
+        if not target:
+            return {"error": "workplace is required for action='switch'."}
+        result = agent_switch.switch(agent_id, str(target), note=False)
+        if not result.get('ok'):
+            return {"error": result.get('error')}
+        if result.get('changed'):
+            # Make the rest of this turn's tool calls run on the new workplace.
+            fresh = db.get_agent(agent_id) or {}
+            agent_context['workplace_id'] = fresh.get('workplace_id')
+            agent_context['workspace'] = _workspace_for(fresh)
+        out = {"result": result['message'], "workplace": result['workplace']}
+        if result.get('transition'):
+            # The chat UI splits the turn at this point and draws the "Workplace switched" divider.
+            out["workplace_switch"] = result['transition']
+        return out
+
+    return tool_def, executor
+
+
+def _workspace_for(agent: dict):
+    """Workspace dir for an agent row, mirroring runtime's per-turn resolution."""
+    import json
+    from models.db import db
+    wp_id = agent.get('workplace_id') or None
+    if wp_id:
+        wp = db.get_workplace(wp_id)
+        if wp:
+            try:
+                cfg = json.loads(wp.get('config') or '{}')
+            except (TypeError, ValueError):
+                cfg = {}
+            path = cfg.get('workspace_path') or None
+            if wp.get('type') == 'tunnel':
+                return path
+            return path or agent.get('workspace') or None
+    return agent.get('workspace') or None

@@ -700,6 +700,22 @@ html.dark .mstate-h h3 { color: #f3f4f6; }
 /* Message box background (dark mode). Swap --chat-bg to try other candidates:
    #172236 (navy) · #131B2E (deeper) · #1B2440 (indigo-tinted) · #1A2230 (neutral slate, previous pick); now follows the app's card colour (--bg-card, = the login card) */
 html.dark #chat-shell { --chat-bg: var(--bg-card); background-color: var(--chat-bg); }
+/* Workplace connection notice: floats above the composer instead of hiding behind it */
+.wp-notice { display: flex; align-items: center; gap: .625rem; margin: 0 0 .5rem; padding: .5rem .5rem .5rem .875rem; border-radius: .875rem;
+  border: 1px solid rgb(245 158 11 / .4); background: rgb(254 243 199 / .92); color: #92400e; font-size: .8125rem;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: 0 6px 18px -10px rgb(0 0 0 / .35); }
+html.dark .wp-notice { border-color: rgb(245 158 11 / .35); background: rgb(66 45 8 / .85); color: #fcd34d; }
+.wp-notice.hidden { display: none; }
+.wp-notice-msg { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wp-notice-ic, .wp-notice-spin { flex: none; width: 1rem; height: 1rem; }
+.wp-notice-spin { display: none; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: wp-notice-spin .8s linear infinite; }
+.wp-notice.is-connecting .wp-notice-spin { display: block; }
+.wp-notice.is-connecting .wp-notice-ic { display: none; }
+.wp-notice-btn { flex: none; font: inherit; font-size: .75rem; font-weight: 600; padding: .3rem .7rem; border: 0; border-radius: .5rem; background: rgb(245 158 11 / .22); color: inherit; cursor: pointer; }
+.wp-notice-btn:hover { background: rgb(245 158 11 / .36); }
+.wp-notice-btn:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+@keyframes wp-notice-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .wp-notice-spin { animation: none; } }
 #chat-composer-wrap { position: absolute; left: 0; right: 0; bottom: 0; z-index: 20; border-top: 0; pointer-events: none; }
 #chat-composer-wrap > * { pointer-events: auto; }
 #chat-composer-wrap > .pblur { pointer-events: none; }
@@ -740,6 +756,71 @@ html.dark .chat-header-circle { color: #818cf8; }
 html.dark .chat-header-circle:hover { color: #c7d2fe; border-color: #6366f1; }
 .chat-header-circle svg { width: 18px; height: 18px; }
 @media (max-width: 1023.98px) { .chat-header-circle { display: inline-flex; } }
+/* Portal tab: one card holding two inset panels (Workplace | Path); they stack on narrow screens */
+.pt-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1.25rem; align-items: stretch; }
+.pt-panel { min-width: 0; display: flex; flex-direction: column; gap: 1rem; padding: 1.125rem; border: 1px solid rgb(148 163 184 / .25); border-radius: 1rem; background: rgb(148 163 184 / .06); }
+.pt-ph { display: flex; align-items: center; gap: .75rem; min-width: 0; }
+.pt-pi { flex: none; width: 2.25rem; height: 2.25rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .625rem; background: rgb(99 102 241 / .12); color: #6366f1; }
+html.dark .pt-pi { color: #a5b4fc; }
+.pt-pi svg { width: 1.1rem; height: 1.1rem; }
+.pt-pt { flex: 1; min-width: 0; }
+.pt-pt h4 { margin: 0; display: flex; align-items: center; gap: .5rem; font-size: .9375rem; font-weight: 650; color: #1f2937; }
+html.dark .pt-pt h4 { color: #f3f4f6; }
+.pt-pt p { margin: .125rem 0 0; font-size: .78rem; line-height: 1.4; color: #6b7280; }
+html.dark .pt-pt p { color: #9ca3af; }
+.pt-meta { font-size: .6875rem; font-weight: 600; padding: .05rem .5rem; border-radius: 9999px; background: rgb(148 163 184 / .2); color: #64748b; }
+.pt-meta.on { background: rgb(16 185 129 / .16); color: #0f9d6b; }
+html.dark .pt-meta { color: #94a3b8; }
+html.dark .pt-meta.on { color: #4fd49a; }
+.pt-ph-act { flex: none; display: inline-flex; cursor: pointer; }
+.pt-hint { margin: 0; font-size: .78rem; line-height: 1.5; color: #6b7280; }
+html.dark .pt-hint { color: #9ca3af; }
+.pt-hint code { font-size: .74rem; }
+.pt-body { display: flex; flex-direction: column; gap: .625rem; }
+.pt-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.pt-label { font-size: .8125rem; font-weight: 600; color: #374151; }
+html.dark .pt-label { color: #e5e7eb; }
+.pt-any { display: inline-flex; align-items: center; gap: .5rem; font-size: .78rem; color: #6b7280; cursor: pointer; user-select: none; }
+.pt-saved { margin: 0; min-height: 1rem; font-size: .75rem; color: #16a34a; }
+.pt-saved.is-err { color: #dc2626; }
+.pt-add { flex: none; font: inherit; font-size: .8125rem; font-weight: 600; padding: .45rem .9rem; border-radius: .65rem; border: 1px solid rgb(99 102 241 / .45); background: rgb(99 102 241 / .1); color: #4f46e5; cursor: pointer; transition: background-color .15s, border-color .15s; }
+html.dark .pt-add { color: #c7d2fe; }
+.pt-add:hover { background: rgb(99 102 241 / .18); border-color: #6366f1; }
+.pt-add:focus-visible { outline: 2px solid #6366f1; outline-offset: 2px; }
+.pt-empty { flex: 1; justify-content: center; display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: 1.75rem 1.25rem; text-align: center; border: 1.5px dashed rgb(148 163 184 / .4); border-radius: .875rem; }
+.pt-empty-ic { width: 3rem; height: 3rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .875rem; background: rgb(99 102 241 / .12); color: #6366f1; }
+html.dark .pt-empty-ic { color: #a5b4fc; }
+.pt-empty-t { margin: .25rem 0 0; font-weight: 650; font-size: .9375rem; color: #1f2937; }
+html.dark .pt-empty-t { color: #f3f4f6; }
+.pt-empty-s { margin: 0 0 .5rem; max-width: 34ch; font-size: .78rem; line-height: 1.5; color: #6b7280; }
+html.dark .pt-empty-s { color: #9ca3af; }
+@media (max-width: 900px) { .pt-cols { grid-template-columns: minmax(0, 1fr); } }
+/* Workplace switching: allowed-workplace picker (custom checkbox, no native control) */
+.wp-sw-list { max-height: 16rem; overflow-y: auto; display: flex; flex-direction: column; gap: .25rem; padding: .25rem; border: 1px solid rgb(148 163 184 / .25); border-radius: .75rem; }
+.wp-sw-row { display: flex; align-items: center; gap: .75rem; padding: .5rem .625rem; border-radius: .5rem; font-size: .875rem; cursor: pointer; color: #374151; transition: background-color .12s; }
+html.dark .wp-sw-row { color: #e5e7eb; }
+.wp-sw-row:hover { background: rgb(148 163 184 / .14); }
+.wp-sw-row input { position: absolute; opacity: 0; pointer-events: none; }
+.wp-sw-box { flex: none; width: 1.125rem; height: 1.125rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .375rem; border: 1.5px solid #9ca3af; color: transparent; transition: background-color .12s, border-color .12s, color .12s; }
+.wp-sw-box svg { width: .75rem; height: .75rem; }
+.wp-sw-row input:checked + .wp-sw-box { background: #6366f1; border-color: #6366f1; color: #fff; }
+.wp-sw-row input:checked ~ .wp-sw-name { font-weight: 500; }
+.wp-sw-row input:focus-visible + .wp-sw-box { box-shadow: 0 0 0 3px rgb(99 102 241 / .3); }
+.wp-sw-row.is-locked { cursor: default; }
+/* the local workspace is always on: a greyed check, not the accent colour */
+.wp-sw-row.is-always input:checked + .wp-sw-box { background: #cbd5e1; border-color: #cbd5e1; color: #fff; }
+html.dark .wp-sw-row.is-always input:checked + .wp-sw-box { background: #475569; border-color: #475569; color: #cbd5e1; }
+.wp-sw-row.is-always input:checked ~ .wp-sw-ico { background: rgb(148 163 184 / .16); color: #64748b; }
+html.dark .wp-sw-row.is-always input:checked ~ .wp-sw-ico { color: #94a3b8; }
+.wp-sw-list.is-any .wp-sw-row { opacity: .6; }
+.wp-sw-row.is-locked:hover { background: transparent; }
+.wp-sw-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wp-sw-ico { flex: none; width: 1.75rem; height: 1.75rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .5rem; background: rgb(148 163 184 / .16); color: #64748b; }
+html.dark .wp-sw-ico { color: #94a3b8; }
+.wp-sw-ico svg { width: 1rem; height: 1rem; }
+.wp-sw-row input:checked ~ .wp-sw-ico { background: rgb(99 102 241 / .14); color: #6366f1; }
+html.dark .wp-sw-row input:checked ~ .wp-sw-ico { color: #a5b4fc; }
+.wp-sw-note { flex: none; font-size: .72rem; color: #94a3b8; }
 /* Workplace chip (chat header + mobile drawer): assigned workplace with live status; opens the quick-switch picker */
 .wp-chip { display: inline-flex; align-items: center; gap: .3125rem; flex: none; max-width: 11rem; height: 1.375rem; padding: 0 .3125rem 0 .4375rem; border: 1px solid; border-radius: .4375rem;
     font-size: .6875rem; font-weight: 600; line-height: 1; cursor: pointer; transition: background-color .15s, border-color .15s, color .15s; }
@@ -1217,6 +1298,9 @@ html.dark #tab-general { --gs-line: rgb(148 163 184 / .22); --gs-surface: rgb(14
 #tab-general .gcard:has(> .mb-4), #tab-general .gcard:has(> .prof) { padding: 0 !important; background: var(--gs-surface); overflow: hidden; }
 #tab-general .gcard-h { gap: .625rem; margin: 0; padding: 1rem 1.25rem; border-bottom: 1px solid var(--gs-line); }
 #tab-general .gcard:not(:has(> .mb-4)):not(:has(> .prof)) .gcard-h { margin-bottom: 1.25rem; padding: 0 0 1rem; }
+/* Variables and Plugin Settings cards are not .gcard: keep their header flush with the rows and leave room under the divider */
+#tab-general .gpanel-vars > div:has(> #agent-variables-list) > .gcard-h,
+#tab-general #plugin-settings-card > .gcard-h { margin: 0 0 1.25rem; padding: 0 0 1rem; }
 #tab-general .gcard-h h3 { font-size: 1.0625rem; font-weight: 700; color: var(--gs-title); }
 #tab-general .gcard > .prof { padding: 1.25rem; }
 #tab-general .gcard > .mb-4 { display: flex; flex-direction: column; margin: 0 !important; padding: 1.125rem 1.25rem; border-bottom: 1px solid var(--gs-line); transition: background-color .15s; }
@@ -2237,32 +2321,53 @@ html.dark #tab-general { --gs-line: rgb(148 163 184 / .22); --gs-surface: rgb(14
         <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-6">
             <div class="gcard-h">
                 <span class="gcard-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="m9 13 2 2 4-4"/></svg></span>
-                <div class="flex-1 min-w-0"><h3>Portals</h3><p>Virtual paths that let file tools (read_file, write_file, patch, str_replace) reach other folders or machines. Not available to bash or runpy.</p></div>
-                <button id="portals-add-btn" type="button" onclick="showAddPortalModal()" class="ch-add">+ Add portal</button>
+                <div class="flex-1 min-w-0"><h3>Portal</h3><p>Where this agent can work, and which folders its file tools can reach.</p></div>
             </div>
-            <div id="portals-list" class="ch-list">
-                <!-- Portals loaded dynamically -->
-            </div>
-            <div id="portals-empty" class="hidden">
-                <p class="ch-empty-t">No portals yet</p>
-                <p class="ch-empty-s">A portal maps a <code class="ch-code">/_portal/name/</code> path to files on another machine or directory. Choose where the files live.</p>
-                <div class="ch-picks">
-                    <button type="button" class="ch-pick ch-pick-wa" onclick="showAddPortalModal('local')">
-                        <span class="ch-pick-ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></span>
-                        <span class="ch-pick-tx"><span class="ch-pick-name">Local folder</span><span class="ch-pick-desc">A directory on this host</span></span>
-                        <span class="ch-pick-go" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
-                    </button>
-                    <button type="button" class="ch-pick ch-pick-tg" onclick="showAddPortalModal('ssh')">
-                        <span class="ch-pick-ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 6h.01"/><path d="M6 18h.01"/></svg></span>
-                        <span class="ch-pick-tx"><span class="ch-pick-name">SSH server</span><span class="ch-pick-desc">Files on a remote server over SSH</span></span>
-                        <span class="ch-pick-go" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
-                    </button>
-                    <button type="button" class="ch-pick ch-pick-dc" onclick="showAddPortalModal('evonet')">
-                        <span class="ch-pick-ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="6" height="6" x="9" y="2" rx="1"/><rect width="6" height="6" x="2" y="16" rx="1"/><rect width="6" height="6" x="16" y="16" rx="1"/><path d="M12 8v4"/><path d="M5 16v-2a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2"/></svg></span>
-                        <span class="ch-pick-tx"><span class="ch-pick-name">Evonet machine</span><span class="ch-pick-desc">A machine connected through an Evonet tunnel</span></span>
-                        <span class="ch-pick-go" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
-                    </button>
-                </div>
+            <div class="pt-cols">
+                <section id="wp-switch-card" class="pt-panel" aria-labelledby="pt-wp-title">
+                    <div class="pt-ph">
+                        <span class="pt-pi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3l4 4-4 4"/><path d="M3 11V9a2 2 0 0 1 2-2h16"/><path d="M7 21l-4-4 4-4"/><path d="M21 13v2a2 2 0 0 1-2 2H3"/></svg></span>
+                        <div class="pt-pt">
+                            <h4 id="pt-wp-title">Workplace <span id="wp-switch-meta" class="pt-meta">Off</span></h4>
+                            <p>Let the agent move itself to another machine when a task needs it.</p>
+                        </div>
+                        <label class="pt-ph-act" title="Allow the agent to switch workplace">
+                            {{ toggle_widget(id='wp-switch-enabled', onchange='saveWorkplaceSwitch()') }}
+                            <span class="sr-only">Allow the agent to switch workplace</span>
+                        </label>
+                    </div>
+                    <p id="wp-switch-off" class="pt-hint">Off by default. When on, the agent gets a <code>switch_workplace</code> tool. A switch is agent-wide (same as the header switcher), applies to all of its sessions, and leaves a [SYSTEM] note in the chat.</p>
+                    <div id="wp-switch-options" class="hidden pt-body">
+                        <div class="pt-row">
+                            <span class="pt-label">Workplaces it may use</span>
+                            <label class="pt-any">
+                                <span>Any workplace</span>{{ toggle_widget(id='wp-switch-all', onchange='onWorkplaceSwitchAll()') }}
+                            </label>
+                        </div>
+                        <div id="wp-switch-searchbox"></div>
+                        <div id="wp-switch-list" class="wp-sw-list"></div>
+                        <p id="wp-switch-saved" class="pt-saved" aria-live="polite"></p>
+                    </div>
+                </section>
+                <section class="pt-panel" aria-labelledby="pt-path-title">
+                    <div class="pt-ph">
+                        <span class="pt-pi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M9 13h6"/></svg></span>
+                        <div class="pt-pt">
+                            <h4 id="pt-path-title">Path <span id="pt-path-meta" class="pt-meta">0</span></h4>
+                            <p>Virtual folders for read_file, write_file, patch and str_replace. Not available to bash or runpy.</p>
+                        </div>
+                        <button id="portals-add-btn" type="button" onclick="showAddPortalModal()" class="pt-add hidden">+ Add portal</button>
+                    </div>
+                    <div id="portals-list" class="ch-list">
+                        <!-- Portals loaded dynamically -->
+                    </div>
+                    <div id="portals-empty" class="hidden pt-empty">
+                        <span class="pt-empty-ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M9 13h6"/></svg></span>
+                        <p class="pt-empty-t">No portals yet</p>
+                        <p class="pt-empty-s">A portal maps <code class="ch-code">/_portal/name/</code> to a folder on one of your workplaces, so the agent can read and edit files there.</p>
+                        <button type="button" class="pt-add" onclick="showAddPortalModal()">+ Add portal</button>
+                    </div>
+                </section>
             </div>
         </div>
     </div>
@@ -2434,13 +2539,15 @@ html.dark #tab-general { --gs-line: rgb(148 163 184 / .22); --gs-surface: rgb(14
                     </button>
                 </div>
                 <!-- Workplace Connection Overlay (shown when agent workplace is not connected) -->
-                <div id="workplace-connection-overlay" class="hidden border-t border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 px-4 py-3 flex items-center gap-3">
-                    <div class="w-4 h-4 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin flex-shrink-0"></div>
-                    <p id="workplace-overlay-msg" class="text-sm text-yellow-700 dark:text-yellow-400">Connecting to workplace...</p>
-                    <button onclick="retryWorkplaceConnect()" class="ml-auto text-xs text-yellow-700 dark:text-yellow-400 hover:underline flex-shrink-0">Retry</button>
-                </div>
                 <div id="chat-composer-wrap" class="p-4">
                     <div class="pblur pblur-bottom" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+                    <!-- Workplace not reachable: a notice that sits right above the composer (inside the wrap, so the message list reserves its height) -->
+                    <div id="workplace-connection-overlay" class="wp-notice hidden" role="status" aria-live="polite">
+                        <span class="wp-notice-spin" aria-hidden="true"></span>
+                        <svg class="wp-notice-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+                        <p id="workplace-overlay-msg" class="wp-notice-msg">Connecting to workplace...</p>
+                        <button type="button" onclick="retryWorkplaceConnect()" class="wp-notice-btn">Retry</button>
+                    </div>
                     <div id="chat-composer" class="chat-composer" onclick="if(!event.target.closest('button,a,textarea,[role=button]')) document.getElementById('chat-input').focus()">
                         <!-- Editor-mode tip (shown on Shift+Enter): a strip joined to the top of the composer card -->
                         <div id="editor-tip" class="hidden chat-anim-in">
@@ -2836,23 +2943,13 @@ html.dark #tab-general { --gs-line: rgb(148 163 184 / .22); --gs-surface: rgb(14
                 <p class="text-xs text-gray-400 mt-1">The virtual path prefix agents use. E.g., "data_b" → /_portal/data_b/...</p>
             </div>
             <div class="mb-4">
-                <label class="block mb-1 text-gray-600 dark:text-gray-300 text-sm font-medium">Backend Type</label>
-                <select id="portal-backend-type" class="w-full p-2.5 border border-gray-300 rounded-md text-sm" onchange="updatePortalConfigFields()">
-                    <option value="local">Local (host filesystem)</option>
-                    <option value="ssh">SSH (remote server)</option>
-                    <option value="evonet">Evonet (tunnel-connected machine)</option>
-                </select>
-            </div>
-            <!-- Workplace picker (for SSH and evonet) -->
-            <div id="portal-workplace-picker" class="mb-4 hidden">
-                <label class="flex items-center gap-2 cursor-pointer select-none mb-2">
-                    <input type="checkbox" id="portal-use-workplace" onchange="updatePortalConfigFields()" class="rounded border-gray-300 text-indigo-500 focus:ring-indigo-400">
-                    <span class="text-sm text-gray-500">Use existing workplace</span>
-                </label>
-                <select id="portal-workplace-select" class="w-full p-2.5 border border-gray-300 rounded-md text-sm hidden">
+                <label class="block mb-1 text-gray-600 dark:text-gray-300 text-sm font-medium">Workplace</label>
+                <input type="hidden" id="portal-backend-type" value="local">
+                <select id="portal-workplace-select" onchange="onPortalWorkplaceChange()" class="w-full p-2.5 border border-gray-300 rounded-md text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/10 dark:bg-gray-700 dark:text-gray-100">
                     <option value="">-- Select workplace --</option>
                 </select>
-                <p class="text-xs text-gray-400 mt-1">Reuse an existing workplace connection instead of creating a new one.</p>
+                <p class="text-xs text-gray-400 mt-1">The portal reuses this workplace's connection. <a href="/workplaces" class="text-indigo-500 hover:underline">Manage Workplaces</a></p>
+                <p id="portal-legacy-note" class="hidden ag-note mt-2">This portal uses its own SSH connection (created before portals were tied to workplaces). Keep editing it, or pick a workplace above to switch it over.</p>
             </div>
             <!-- SSH config fields -->
             <div id="portal-ssh-config" class="hidden space-y-3">
@@ -3047,9 +3144,10 @@ html.dark #tab-general { --gs-line: rgb(148 163 184 / .22); --gs-surface: rgb(14
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/chat-ui.js') }}?v=70" defer></script>
-<script src="{{ url_for('static', filename='js/agent-state.js') }}?v=6" defer></script>
-<script src="{{ url_for('static', filename='js/state-ui.js') }}?v=15" defer></script>
+<script src="{{ url_for('static', filename='js/chat-ui.js') }}?v=73" defer></script>
+<script src="{{ url_for('static', filename='js/ai-logos.js') }}?v=1" defer></script>
+<script src="{{ url_for('static', filename='js/agent-state.js') }}?v=12" defer></script>
+<script src="{{ url_for('static', filename='js/state-ui.js') }}?v=16" defer></script>
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <script>
 // AGENT_ID/ENABLE_AGENT_STATE are mutable: softSwitchAgent() retargets the page
@@ -3285,7 +3383,7 @@ function showTab(name) {
     if (name === 'tools') loadTools();
     if (name === 'skills') loadSkills();
     if (name === 'channels') loadChannels();
-    if (name === 'portals') loadPortals();
+    if (name === 'portals') { loadPortals(); loadWorkplaceSwitch(); }
     if (name === 'artifacts') loadArtifacts();
     if (name === 'general') loadGeneralTabData();
     if (name === 'chat' && !chatLoaded) { loadChatHistory(); refreshSessionState(); }
@@ -6914,6 +7012,12 @@ function renderEntries(entries) {
             let result;
             try { result = JSON.parse(entry.content); } catch(e) { result = {data: entry.content}; }
             chatUI.appendTimelineEntry(thinkingId, {type: 'tool_result', tool: entry.function, result, error: !!entry.error});
+            // switch_workplace: end this bubble and draw the divider here, later steps start a new one.
+            if (entry.function === 'switch_workplace' && !entry.error && result && result.workplace_switch) {
+                chatUI.finalizeThinkingBubble(thinkingId);
+                thinkingId = null;
+                chatUI.appendMessage('system', '', {metadata: {workplace_switch: result.workplace_switch}, timestamp: entry.ts});
+            }
         } else if (type === 'intermediate') {
             if (!thinkingId) thinkingId = chatUI.showThinkingIndicator();
             chatUI.appendTimelineEntry(thinkingId, {type: 'response', content: entry.content});
@@ -7118,6 +7222,17 @@ function _handleAgentRealtime(evtName, data, sessionId) {
         return;
     }
     turn.ingest({event: evtName, data, seq});
+    // The agent moved itself mid-turn: break the chat here with the "Workplace switched" divider and
+    // carry on in a fresh bubble. Only the display splits; the backend turn is still one chain.
+    if (evtName === 'tool_executed' && data.tool === 'switch_workplace' && !data.error
+            && data.result && data.result.workplace_switch) {
+        const at = data.ts || data.timestamp || Date.now();
+        turn.ingest({event: 'turn_split', data: {timestamp: at}, seq: 0});
+        chatUI.appendMessage('system', '', {metadata: {workplace_switch: data.result.workplace_switch}, timestamp: at});
+        turn = chatUI.showThinkingIndicator();
+        _currentTurn.thinkingId = turn;
+        return;
+    }
     if (evtName === 'done') {
         _renderTurnResponse(data);
         _currentTurn = null;
@@ -9321,7 +9436,31 @@ async function loadWorkplaceSelector() {
     }
 }
 
+// The agent can switch workplace on its own (switch_workplace tool), so the settings
+// select, which drives the header chip, follows the server instead of only the page load.
+async function syncAgentWorkplace() {
+    const sel = document.getElementById('agent-workplace-id');
+    if (!sel || document.activeElement === sel) return;
+    if (typeof AgentAutoSave !== 'undefined' && AgentAutoSave._timers && AgentAutoSave._timers['agent-workplace-id']) return;   // user edit still saving
+    const requested = AGENT_ID;
+    try {
+        const res = await fetch(`/api/agents/${encodeURIComponent(requested)}/workplace`);
+        if (!res.ok) return;
+        const id = (await res.json()).workplace_id || '';
+        if (requested !== AGENT_ID || sel.value === id) return;
+        if (id && !Array.from(sel.options).some(o => o.value === id)) {
+            const w = _workplacesById[id];
+            if (w) _appendWorkplaceOption(sel, w);
+        }
+        sel.value = id;
+        updateWorkspaceVisibility();
+    } catch (e) {}
+}
+
+document.addEventListener('evonic:workplace-maybe-changed', () => pollWorkplaceStatus());
+
 async function pollWorkplaceStatus() {
+    await syncAgentWorkplace();
     const homeId = document.getElementById('agent-workplace-id') ? document.getElementById('agent-workplace-id').value : '';
     let connectionStatus = null;
     if (!homeId) {
@@ -9354,8 +9493,12 @@ function showWorkplaceConnectionOverlay(homeId, status) {
     const sel = document.getElementById('agent-workplace-id');
     const selectedOpt = sel ? sel.options[sel.selectedIndex] : null;
     const homeName = selectedOpt && selectedOpt.value ? selectedOpt.dataset.name || selectedOpt.textContent.split(' [')[0] : 'workplace';
-    const msg = status === 'error' ? `Connection error — ${homeName}.` : `Connecting to ${homeName}...`;
-    document.getElementById('workplace-overlay-msg').textContent = msg;
+    const msg = status === 'error' ? `Connection error — ${homeName}.` : status === 'connecting' ? `Connecting to ${homeName}...` : `${homeName} is not connected.`;
+    const msgEl = document.getElementById('workplace-overlay-msg');
+    msgEl.textContent = msg;
+    msgEl.title = msg;
+    // The spinner only belongs to an attempt that is actually in progress.
+    overlay.classList.toggle('is-connecting', status === 'connecting');
 }
 
 function hideWorkplaceConnectionOverlay() {
@@ -10174,6 +10317,118 @@ async function toggleEnabled() {
 // ==================== Portals Tab ====================
 let _portalEditingId = null;
 
+// ---- Workplace switching (opt-in `switch_workplace` tool) ----
+let _wpSwitch = { enabled: false, allowed: [], workplaces: [] };
+
+async function loadWorkplaceSwitch() {
+    const epoch = window._agentEpoch;
+    try {
+        const [agentRes, wpRes] = await Promise.all([
+            fetch(`/api/agents/${AGENT_ID}`), fetch('/api/workplaces?summary=1'),
+        ]);
+        const agent = await agentRes.json();
+        const wps = await wpRes.json();
+        if (epoch !== window._agentEpoch) return;
+        let allowed = [];
+        try { allowed = JSON.parse(agent.workplace_switch_allowed || '[]') || []; } catch (e) { allowed = []; }
+        _wpSwitch = { enabled: !!agent.workplace_switch_enabled, allowed, workplaces: Array.isArray(wps) ? wps : [] };
+        const box = document.getElementById('wp-switch-searchbox');
+        if (box && !box.firstChild) {
+            box.innerHTML = evSearchBox('id="wp-switch-search" oninput="renderWorkplaceSwitchList()" onkeydown="if(event.key===\'Escape\'&&this.value){this.value=\'\';renderWorkplaceSwitchList();}"', '', 'Search workplaces…');
+        }
+        document.getElementById('wp-switch-enabled').checked = _wpSwitch.enabled;
+        document.getElementById('wp-switch-all').checked = allowed.length === 0;
+        renderWorkplaceSwitchList();
+        updateWorkplaceSwitchMeta();
+    } catch (e) { console.error('[WorkplaceSwitch] load failed', e); }
+}
+
+// One icon per workplace kind, shown left of the name (the kind is the tooltip).
+const WP_SW_ICON = {
+    host:   '<path d="M3 5h18v11H3z"/><path d="M8 21h8M12 16v5"/>',                                   // this machine
+    local:  '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',   // local folder
+    remote: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',                                           // SSH terminal
+    tunnel: '<rect width="6" height="6" x="9" y="2" rx="1"/><rect width="6" height="6" x="2" y="16" rx="1"/><rect width="6" height="6" x="16" y="16" rx="1"/><path d="M12 8v4M5 16v-2a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2"/>',  // Evonet
+    bwrap:  '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',                                   // sandbox
+};
+const WP_SW_KIND = { host: 'This machine', local: 'Local folder', remote: 'SSH', tunnel: 'Evonet', bwrap: 'Bwrap sandbox' };
+
+// Header badge, the off-state hint and the options block all follow the toggles.
+function updateWorkplaceSwitchMeta() {
+    const enabled = document.getElementById('wp-switch-enabled').checked;
+    const any = document.getElementById('wp-switch-all').checked;
+    document.getElementById('wp-switch-options').classList.toggle('hidden', !enabled);
+    document.getElementById('wp-switch-off').classList.toggle('hidden', enabled);
+    const meta = document.getElementById('wp-switch-meta');
+    meta.textContent = !enabled ? 'Off' : any ? 'Any workplace' : `${_wpSwitch.allowed.filter(id => id !== 'local').length + 1} allowed`;
+    meta.classList.toggle('on', enabled);
+}
+
+function renderWorkplaceSwitchList() {
+    const list = document.getElementById('wp-switch-list');
+    if (!list) return;
+    const any = document.getElementById('wp-switch-all').checked;
+    list.classList.toggle('is-any', any);
+    const q = (document.getElementById('wp-switch-search').value || '').trim().toLowerCase();
+    // The local workspace is always available to the agent, so it cannot be unticked.
+    const rows = [{ id: 'local', name: 'Local workspace', kind: 'host', always: true }]
+        .concat(_wpSwitch.workplaces.map(w => ({ id: w.id, name: w.name, kind: WP_SW_ICON[w.type] ? w.type : 'local' })))
+        .filter(w => !q || `${w.name} ${WP_SW_KIND[w.kind]}`.toLowerCase().includes(q));
+    if (!rows.length) { list.innerHTML = '<p class="text-sm text-gray-400 p-3">No workplaces match.</p>'; return; }
+    list.innerHTML = rows.map(w => {
+        const locked = any || w.always;
+        const checked = locked || _wpSwitch.allowed.includes(w.id);
+        return `<label class="wp-sw-row${locked ? ' is-locked' : ''}${w.always ? ' is-always' : ''}"${w.always ? ' title="The local workspace is always available"' : ''}>
+            <input type="checkbox" data-wp="${esc(w.id)}" ${checked ? 'checked' : ''} ${locked ? 'disabled' : ''} onchange="onWorkplaceSwitchPick(this)">
+            <span class="wp-sw-box" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+            <span class="wp-sw-ico" title="${esc(WP_SW_KIND[w.kind])}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-label="${esc(WP_SW_KIND[w.kind])}">${WP_SW_ICON[w.kind]}</svg></span>
+            <span class="wp-sw-name">${esc(w.name)}</span>
+            ${w.always ? '<span class="wp-sw-note">Always on</span>' : ''}</label>`;
+    }).join('');
+}
+
+function onWorkplaceSwitchAll() {
+    if (document.getElementById('wp-switch-all').checked) _wpSwitch.allowed = [];
+    else _wpSwitch.allowed = _wpSwitch.workplaces.map(w => w.id);   // start from "all", then untick
+    renderWorkplaceSwitchList();
+    updateWorkplaceSwitchMeta();
+    saveWorkplaceSwitch();
+}
+
+function onWorkplaceSwitchPick(el) {
+    const id = el.getAttribute('data-wp');
+    const set = new Set(_wpSwitch.allowed);
+    if (el.checked) set.add(id); else set.delete(id);
+    _wpSwitch.allowed = Array.from(set);
+    updateWorkplaceSwitchMeta();
+    saveWorkplaceSwitch();
+}
+
+async function saveWorkplaceSwitch() {
+    const enabled = document.getElementById('wp-switch-enabled').checked;
+    const any = document.getElementById('wp-switch-all').checked;
+    updateWorkplaceSwitchMeta();
+    try {
+        const res = await putAgent({ workplace_switch_enabled: enabled ? 1 : 0, // "Any workplace" is stored as an empty list; a specific list always names 'local' so it is never empty.
+            workplace_switch_allowed: any ? [] : ['local'].concat(_wpSwitch.allowed.filter(id => id !== 'local')) });
+        // The server ignores unknown fields silently, so confirm it actually stored them
+        // (an older server process, started before this feature, would not).
+        const saved = res.agent || {};
+        if (!('workplace_switch_enabled' in saved) || !!saved.workplace_switch_enabled !== enabled) {
+            throw new Error('server did not store the setting — restart Evonic to load the new version');
+        }
+        _wpSwitch.enabled = enabled;
+        const el = document.getElementById('wp-switch-saved');
+        el.classList.remove('is-err');
+        el.textContent = 'Saved';
+        setTimeout(() => { if (el.textContent === 'Saved') el.textContent = ''; }, 1500);
+    } catch (e) {
+        const el = document.getElementById('wp-switch-saved');
+        el.classList.add('is-err');
+        el.textContent = 'Save failed: ' + e.message;
+    }
+}
+
 async function loadPortals() {
     const epoch = window._agentEpoch;
     const res = await fetch(`/api/agents/${AGENT_ID}/portals`);
@@ -10183,7 +10438,9 @@ async function loadPortals() {
     const list = document.getElementById('portals-list');
     const empty = document.getElementById('portals-empty');
     const addBtn = document.getElementById('portals-add-btn');
-    if (addBtn) addBtn.classList.toggle('hidden', portals.length === 0);   // the picker below already offers every type
+    if (addBtn) addBtn.classList.toggle('hidden', portals.length === 0);   // the empty state has its own button
+    const pathMeta = document.getElementById('pt-path-meta');
+    if (pathMeta) { pathMeta.textContent = String(portals.length); pathMeta.classList.toggle('on', portals.length > 0); }
     if (portals.length === 0) {
         list.innerHTML = '';
         empty.classList.remove('hidden');
@@ -10215,17 +10472,17 @@ async function loadPortals() {
     }).join('');
 }
 
-function showAddPortalModal(type) {
+let _portalLegacySsh = false;   // editing a portal that carries its own SSH config
+
+function showAddPortalModal() {
     _portalEditingId = null;
+    _portalLegacySsh = false;
     document.getElementById('portal-modal-title').textContent = 'Add Portal';
     document.getElementById('portal-name').value = '';
     document.getElementById('portal-virtual-path').value = '';
     document.getElementById('portal-backend-type').value = 'local';
     document.getElementById('portal-real-path').value = '';
     document.getElementById('portal-workplace-select').value = '';
-    // Reset checkbox and SSH fields
-    const cb = document.getElementById('portal-use-workplace');
-    if (cb) { cb.checked = false; cb.disabled = false; }
     document.getElementById('portal-ssh-host').value = '';
     document.getElementById('portal-ssh-port').value = '22';
     document.getElementById('portal-ssh-username').value = '';
@@ -10234,8 +10491,8 @@ function showAddPortalModal(type) {
     document.getElementById('portal-ssh-passphrase').value = '';
     document.getElementById('portal-ssh-password').value = '';
     document.getElementById('portal-modal').classList.remove('hidden');
-    if (type && ['local', 'ssh', 'evonet'].includes(type)) document.getElementById('portal-backend-type').value = type;
     updatePortalConfigFields();
+    loadPortalWorkplaces();
     setTimeout(() => { const n = document.getElementById('portal-name'); if (n) n.focus(); }, 0);
 }
 
@@ -10252,13 +10509,8 @@ async function showEditPortalModal(portalId) {
     document.getElementById('portal-backend-type').value = portal.backend_type || 'local';
     document.getElementById('portal-real-path').value = portal.real_path || '';
     const cfg = typeof portal.backend_config === 'string' ? JSON.parse(portal.backend_config || '{}') : (portal.backend_config || {});
-    document.getElementById('portal-workplace-select').value = cfg.workplace_id || '';
-    if (cfg.workplace_id) {
-        const cb = document.getElementById('portal-use-workplace');
-        if (cb) cb.checked = true;
-        const sel = document.getElementById('portal-workplace-select');
-        if (sel) sel.classList.remove('hidden');
-    }
+    _portalLegacySsh = portal.backend_type === 'ssh' && !cfg.workplace_id;
+    await loadPortalWorkplaces(cfg.workplace_id || '');
     // Pre-populate SSH standalone fields if editing
     if (portal.backend_type === 'ssh' && !cfg.workplace_id) {
         document.getElementById('portal-ssh-host').value = cfg.host || '';
@@ -10279,83 +10531,61 @@ function closePortalModal() {
     document.getElementById('portal-modal').classList.add('hidden');
 }
 
-function updatePortalConfigFields() {
-    const type = document.getElementById('portal-backend-type').value;
-    const sshNewConfig = document.getElementById('portal-ssh-config');
-    const workplaceRow = document.getElementById('portal-workplace-picker');
-    const useWorkplaceCb = document.getElementById('portal-use-workplace');
-    const workplaceSelect = document.getElementById('portal-workplace-select');
+// Backend type follows the chosen workplace: SSH → ssh, Evonet tunnel → evonet, anything else → local.
+const PORTAL_BACKEND_FOR_WORKPLACE = { remote: 'ssh', tunnel: 'evonet' };
 
-    if (type === 'local') {
-        if (sshNewConfig) sshNewConfig.classList.add('hidden');
-        if (workplaceRow) workplaceRow.classList.add('hidden');
-        if (useWorkplaceCb) useWorkplaceCb.checked = false;
-    } else if (type === 'ssh') {
-        if (workplaceRow) workplaceRow.classList.remove('hidden');
-        loadPortalWorkplaces();
-        _applyWorkplaceToggle();
-    } else if (type === 'evonet') {
-        if (sshNewConfig) sshNewConfig.classList.add('hidden');
-        if (workplaceRow) workplaceRow.classList.remove('hidden');
-        if (useWorkplaceCb) { useWorkplaceCb.checked = true; useWorkplaceCb.disabled = true; }
-        if (workplaceSelect) workplaceSelect.classList.remove('hidden');
-        loadPortalWorkplaces();
-    }
+function updatePortalConfigFields() {
+    const sel = document.getElementById('portal-workplace-select');
+    const opt = sel && sel.options[sel.selectedIndex];
+    const wpType = opt && opt.value ? opt.dataset.type : '';
+    if (wpType) document.getElementById('portal-backend-type').value = PORTAL_BACKEND_FOR_WORKPLACE[wpType] || 'local';
+    else if (_portalLegacySsh) document.getElementById('portal-backend-type').value = 'ssh';
+    const legacy = _portalLegacySsh && !(sel && sel.value);
+    document.getElementById('portal-ssh-config').classList.toggle('hidden', !legacy);
+    document.getElementById('portal-legacy-note').classList.toggle('hidden', !_portalLegacySsh);
 }
 
-function _applyWorkplaceToggle() {
-    const sshNewConfig = document.getElementById('portal-ssh-config');
-    const useWorkplaceCb = document.getElementById('portal-use-workplace');
-    const workplaceSelect = document.getElementById('portal-workplace-select');
-    if (!useWorkplaceCb) return;
-    const useExisting = useWorkplaceCb.checked;
-    if (sshNewConfig) {
-        if (useExisting) sshNewConfig.classList.add('hidden');
-        else sshNewConfig.classList.remove('hidden');
-    }
-    if (workplaceSelect) {
-        if (useExisting) workplaceSelect.classList.remove('hidden');
-        else {
-            workplaceSelect.classList.add('hidden');
-            workplaceSelect.value = '';
-        }
-    }
+function onPortalWorkplaceChange() {
+    updatePortalConfigFields();
+    const sel = document.getElementById('portal-workplace-select');
+    const opt = sel.options[sel.selectedIndex];
+    const real = document.getElementById('portal-real-path');
+    if (opt && opt.dataset.path && !real.value.trim()) real.value = opt.dataset.path;
 }
 
 async function savePortal() {
     const name = document.getElementById('portal-name').value.trim();
     const virtualPath = document.getElementById('portal-virtual-path').value.trim().replace(/^\/+|\/+$/g, '');
-    const backendType = document.getElementById('portal-backend-type').value;
     const realPath = document.getElementById('portal-real-path').value.trim();
     const workplaceId = document.getElementById('portal-workplace-select').value.trim();
 
     if (!name) return alert('Name is required.');
     if (!virtualPath) return alert('Virtual path is required.');
     if (!realPath) return alert('Real path is required.');
+    updatePortalConfigFields();
+    const backendType = document.getElementById('portal-backend-type').value;
 
     let backendConfig = {};
-    if (backendType === 'ssh' || backendType === 'evonet') {
-        if (workplaceId) {
-            backendConfig = { workplace_id: workplaceId };
-        } else if (backendType === 'evonet') {
-            return alert('Evonet portals require a workplace_id.');
-        } else {
-            // Standalone SSH config
-            backendConfig = {
-                host: document.getElementById('portal-ssh-host')?.value?.trim() || '',
-                port: parseInt(document.getElementById('portal-ssh-port')?.value || '22'),
-                username: document.getElementById('portal-ssh-username')?.value?.trim() || '',
-                auth_type: document.getElementById('portal-ssh-auth-type')?.value || 'key',
-                key_path: document.getElementById('portal-ssh-key-path')?.value?.trim() || '',
-                passphrase: document.getElementById('portal-ssh-passphrase')?.value?.trim() || '',
-            };
-            if (backendConfig.auth_type === 'password') {
-                backendConfig.password = document.getElementById('portal-ssh-password')?.value?.trim() || '';
-            }
-            if (!backendConfig.host || !backendConfig.username) {
-                return alert('Host and username are required for SSH.');
-            }
+    if (workplaceId) {
+        backendConfig = { workplace_id: workplaceId };
+    } else if (_portalLegacySsh) {
+        // Portal created before portals were tied to workplaces: keep its own SSH config.
+        backendConfig = {
+            host: document.getElementById('portal-ssh-host')?.value?.trim() || '',
+            port: parseInt(document.getElementById('portal-ssh-port')?.value || '22'),
+            username: document.getElementById('portal-ssh-username')?.value?.trim() || '',
+            auth_type: document.getElementById('portal-ssh-auth-type')?.value || 'key',
+            key_path: document.getElementById('portal-ssh-key-path')?.value?.trim() || '',
+            passphrase: document.getElementById('portal-ssh-passphrase')?.value?.trim() || '',
+        };
+        if (backendConfig.auth_type === 'password') {
+            backendConfig.password = document.getElementById('portal-ssh-password')?.value?.trim() || '';
         }
+        if (!backendConfig.host || !backendConfig.username) {
+            return alert('Host and username are required for SSH.');
+        }
+    } else {
+        return alert('Choose a workplace.');
     }
 
     const body = {
@@ -10411,24 +10641,24 @@ async function disconnectPortal(portalId) {
 }
 
 // Load workplaces for dropdown in portal modal
-async function loadPortalWorkplaces() {
+async function loadPortalWorkplaces(selectId) {
     try {
         const res = await fetch('/api/workplaces?summary=1');
-        const data = await res.json();
-        const workplaces = data || [];
+        const workplaces = (await res.json()) || [];
         const sel = document.getElementById('portal-workplace-select');
         if (!sel) return;
-        const prevVal = sel.value;
-        sel.innerHTML = '<option value="">-- Configure new connection --</option>';
-        // Option() sets text, not HTML; one append instead of re-parsing innerHTML per row
+        const keep = selectId !== undefined ? selectId : sel.value;
+        sel.innerHTML = '<option value="">-- Select workplace --</option>';
         const frag = document.createDocumentFragment();
-        workplaces.forEach(w => frag.appendChild(new Option(`${w.name} (${w.type})`, w.id)));
+        workplaces.forEach(w => {
+            const o = new Option(`${w.name} (${(typeof WP_TYPE_LABEL !== 'undefined' && WP_TYPE_LABEL[w.type]) || w.type})`, w.id);
+            o.dataset.type = w.type;
+            if (w.workspace_path) o.dataset.path = w.workspace_path;
+            frag.appendChild(o);
+        });
         sel.appendChild(frag);
-        // Restore previously selected value if it still exists in the new options
-        if (prevVal) {
-            const exists = Array.from(sel.options).some(o => o.value === prevVal);
-            if (exists) sel.value = prevVal;
-        }
+        if (keep && Array.from(sel.options).some(o => o.value === keep)) sel.value = keep;
+        updatePortalConfigFields();
     } catch (e) {
         console.error('Failed to load workplaces for portal picker:', e);
     }

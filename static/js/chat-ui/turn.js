@@ -305,6 +305,10 @@ export class Turn {
             if (this._captureSavedArtifact(data)) this._renderSavedArtifacts();
             this._mergeToolResult(data);
             this._showThinkingRow();
+            // An agent that moved itself changed the workplace shown in the page header.
+            if (data && data.tool === 'switch_workplace' && !data.error) {
+                document.dispatchEvent(new CustomEvent('evonic:workplace-maybe-changed'));
+            }
             // Fire tool:executed for agent-state-bridge
             this._onTrigger('tool:executed', data);
             return;

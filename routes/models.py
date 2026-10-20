@@ -226,6 +226,62 @@ def api_set_default_model(model_id):
     return jsonify({"success": True})
 
 
+@models_bp.route("/api/models/<path:model_id>/ping", methods=["POST"])
+def api_ping_model(model_id):
+    """Send a one-word prompt through the model itself to prove it can be reached.
+
+    Unlike /test (which only checks the provider endpoint) this goes through the
+    same client agents use, so credentials, routing and the model name are all
+    exercised. No fallback is allowed: a dead model must not look alive because
+    another one answered.
+    """
+    import time
+    from backend.llm_client import LLMClient
+
+    model = db.get_model_by_id(model_id)
+    if not model:
+        return jsonify({"success": False, "error": "Model not found"}), 404
+    model = db.resolve_model_config(model)
+    config = {
+        "provider": model.get("provider"),
+        "base_url": model.get("base_url"),
+        "api_key": model.get("api_key"),
+        "model_name": model.get("model_name"),
+        # A ping that hangs for minutes is itself an answer.
+        "timeout": min(int(model.get("timeout") or 60), 30),
+        "thinking": False,
+        "thinking_budget": 0,
+        "max_tokens": 16,
+        "context_window": model.get("context_window"),
+        "temperature": model.get("temperature"),
+        "vision_supported": bool(model.get("vision_supported")),
+        "api_format": model.get("api_format", "openai"),
+    }
+    started = time.monotonic()
+    try:
+        result = LLMClient(model_config=config, _allow_fallback=False).chat_completion(
+            messages=[{"role": "user", "content": "Reply with the single word: pong"}],
+            tools=None, temperature=0.0, enable_thinking=False, max_tokens=16,
+        )
+    except Exception as exc:  # network errors, bad credentials, missing CLI ...
+        _logger.info("Model ping failed for %s: %s", model_id, exc)
+        return jsonify({"success": False, "error": str(exc)[:300],
+                        "latency_ms": int((time.monotonic() - started) * 1000)})
+    latency = int((time.monotonic() - started) * 1000)
+    if not result.get("success"):
+        detail = result.get("error_detail") or result.get("error") or result.get("error_type") or "No response"
+        if isinstance(detail, dict):
+            detail = detail.get("message") or json.dumps(detail)
+        return jsonify({"success": False, "error": str(detail)[:300], "latency_ms": latency})
+    reply = ""
+    try:
+        message = (result.get("response") or {}).get("choices", [{}])[0].get("message", {})
+        reply = (message.get("content") or "").strip()
+    except (AttributeError, IndexError, TypeError):
+        pass
+    return jsonify({"success": True, "latency_ms": latency, "reply": reply[:80]})
+
+
 @models_bp.route("/api/models/<path:model_id>/test", methods=["POST"])
 def api_test_model(model_id):
     """Test connection to model endpoint."""

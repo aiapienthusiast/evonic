@@ -139,6 +139,51 @@ class ProvidersMixin:
             conn.commit()
             return cursor.rowcount > 0
 
+    def get_provider_delete_impact(self, provider_id: str) -> Dict[str, Any]:
+        """What deleting a provider together with its models would touch."""
+        models = self.get_models_by_provider(provider_id)
+        agents: Dict[str, List[str]] = {}
+        profiles: set = set()
+        for m in models:
+            refs = self.get_model_references(m["id"])
+            for ref in refs["agents"]:
+                column, _, agent_id = ref.partition(":")
+                agents.setdefault(agent_id, []).append(f"{column}={m['name']}")
+            profiles.update(refs["profiles"])
+        names = {}
+        for agent_id in agents:
+            agent = self.get_agent(agent_id) or {}
+            names[agent_id] = agent.get("name") or agent_id
+        return {
+            "models": [{"id": m["id"], "name": m.get("name"), "is_default": bool(m.get("is_default"))} for m in models],
+            "agents": [{"id": a, "name": names[a], "uses": uses} for a, uses in sorted(agents.items())],
+            "profiles": sorted(profiles),
+            "is_default": any(m.get("is_default") for m in models),
+        }
+
+    def delete_provider_cascade(self, provider_id: str) -> int:
+        """Delete a provider and all its models; agents pointing at those models fall back to defaults.
+
+        Returns the number of models removed. Refuses (ValueError) while one of them is the global default.
+        """
+        models = self.get_models_by_provider(provider_id)
+        if any(m.get("is_default") for m in models):
+            raise ValueError("default_model")
+        ids = [m["id"] for m in models]
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            for model_id in ids:
+                for column in ("model_id", "fallback_model_id", "vision_model_id", "default_model_id"):
+                    try:
+                        cursor.execute(
+                            f"UPDATE agents SET {column} = NULL WHERE {column} = ?", (model_id,))
+                    except sqlite3.OperationalError:
+                        continue
+                cursor.execute("DELETE FROM llm_models WHERE id = ?", (model_id,))
+            cursor.execute("DELETE FROM providers WHERE id = ?", (provider_id,))
+            conn.commit()
+        return len(ids)
+
     def get_models_by_provider(self, provider_id: str) -> List[Dict[str, Any]]:
         with self._connect() as conn:
             conn.row_factory = sqlite3.Row

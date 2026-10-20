@@ -295,6 +295,15 @@ def api_get_agent(agent_id):
     return jsonify(_sanitize_agent(agent))
 
 
+@agents_bp.route('/api/agents/<agent_id>/workplace', methods=['GET'])
+def api_get_agent_workplace(agent_id):
+    """Current workplace only: the page header polls this to follow a switch the agent made itself."""
+    agent = db.get_agent(agent_id)
+    if not agent:
+        return jsonify({'error': 'Agent not found'}), 404
+    return jsonify({'workplace_id': agent.get('workplace_id') or None})
+
+
 @agents_bp.route('/api/agents/<agent_id>/commands', methods=['GET'])
 def api_list_agent_commands(agent_id):
     if not db.get_agent(agent_id):
@@ -445,6 +454,13 @@ def api_update_agent(agent_id):
                 _json.loads(data['messaging_acl'])
             except _json.JSONDecodeError:
                 return jsonify({'error': 'messaging_acl must be a JSON array of agent IDs.'}), 400
+    if 'workplace_switch_allowed' in data:
+        from backend.workplaces.agent_switch import parse_allowed
+        import json as _json
+        _allowed = parse_allowed(data['workplace_switch_allowed'])
+        data['workplace_switch_allowed'] = _json.dumps(_allowed) if _allowed else None
+    if 'workplace_switch_enabled' in data:
+        data['workplace_switch_enabled'] = 1 if data['workplace_switch_enabled'] else 0
     target_workplace_id = data.get('workplace_id', existing.get('workplace_id'))
     try:
         _apply_sandbox_workplace_policy(data, target_workplace_id)
@@ -1973,6 +1989,83 @@ def api_chat_summary(agent_id):
     return jsonify(_chat_summary_payload(agent_id, user_id))
 
 
+_MODEL_DETAIL_KEYS = (
+    'id', 'name', 'model_name', 'provider', 'shortcode', 'context_window',
+    'max_tokens', 'temperature', 'thinking', 'thinking_budget',
+    'vision_supported', 'api_format',
+)
+
+
+def _model_detail(m):
+    out = {k: m.get(k) for k in _MODEL_DETAIL_KEYS}
+    out['thinking'] = bool(out['thinking'])
+    out['vision_supported'] = bool(out['vision_supported'])
+    return out
+
+
+@agents_bp.route('/api/agents/<agent_id>/chat/models', methods=['GET'])
+def api_chat_session_models(agent_id):
+    """Models selectable for one chat session, plus what it currently uses."""
+    import json as _json
+    session_id = request.args.get('session_id', '').strip()
+    override_id = None
+    if session_id:
+        raw = db.get_session_state(session_id, agent_id=agent_id)
+        try:
+            data = _json.loads(raw) if raw else {}
+        except (ValueError, TypeError):
+            data = {}
+        override_id = data.get('model_override_id') if isinstance(data, dict) else None
+    primary = db.get_agent_model(agent_id)
+    agent = db.get_agent(agent_id) or {}
+    fallback = db.get_model_by_id(agent['fallback_model_id']) if agent.get('fallback_model_id') else None
+    providers = {p['id']: p.get('name', p['id']) for p in db.get_providers()}
+    models = []
+    for m in db.get_enabled_llm_models():
+        d = _model_detail(m)
+        d['provider_name'] = providers.get(d['provider'], d['provider'])
+        models.append(d)
+    return jsonify({
+        'models': models,
+        'override_id': override_id,
+        'primary_id': (primary or {}).get('id'),
+        'fallback_id': (fallback or {}).get('id'),
+    })
+
+
+@agents_bp.route('/api/agents/<agent_id>/chat/model', methods=['POST'])
+def api_chat_set_session_model(agent_id):
+    """Set (or clear, with model_id null) the model for ONE session only.
+
+    The agent's primary and fallback model are never modified.
+    """
+    import json as _json
+    body = request.get_json(silent=True) or {}
+    session_id = (body.get('session_id') or '').strip()
+    model_id = body.get('model_id') or None
+    if not session_id:
+        return jsonify({'success': False, 'error': 'session_id is required'}), 400
+    if not db.get_agent(agent_id):
+        return jsonify({'success': False, 'error': 'Agent not found'}), 404
+    if model_id:
+        m = db.get_model_by_id(model_id)
+        if not m or not m.get('enabled', True):
+            return jsonify({'success': False, 'error': 'Model not found or disabled'}), 400
+    raw = db.get_session_state(session_id, agent_id=agent_id)
+    try:
+        data = _json.loads(raw) if raw else {}
+    except (ValueError, TypeError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    if model_id:
+        data['model_override_id'] = model_id
+    else:
+        data.pop('model_override_id', None)
+    db.upsert_session_state(session_id, _json.dumps(data), agent_id=agent_id)
+    return jsonify({'success': True, 'override_id': model_id})
+
+
 @agents_bp.route('/api/agents/<agent_id>/chat/state', methods=['GET'])
 def api_chat_agent_state(agent_id):
     """Return merged agent state (global + per-session fields).
@@ -2038,6 +2131,16 @@ def api_chat_agent_state(agent_id):
     _is_explorer = _sub_cfg is not None and _explorer.is_explorer(_sub_cfg)
 
     def _resolve_active_model():
+        ov_id = merged.get('model_override_id') if isinstance(merged, dict) else None
+        ov_model = db.get_model_by_id(ov_id) if ov_id else None
+        if ov_model and ov_model.get('enabled', True):
+            return {
+                'name': ov_model.get('name', ov_id),
+                'model_name': ov_model.get('model_name', ov_id),
+                'is_fallback': False,
+                'is_session_override': True,
+                'id': ov_id,
+            }
         fb_id = agent_data.get('active_fallback_model_id')
         if fb_id:
             fb_model = db.get_model_by_id(fb_id)
@@ -2658,6 +2761,10 @@ def api_create_portal(agent_id):
             backend_config = json.loads(backend_config)
         except (json.JSONDecodeError, ValueError):
             return jsonify({'error': 'backend_config must be valid JSON'}), 400
+
+    if isinstance(backend_config, dict) and backend_config.get('workplace_id') \
+            and not db.get_workplace(backend_config['workplace_id']):
+        return jsonify({'error': 'workplace not found'}), 400
 
     portal_data = {
         'agent_id': agent_id,
