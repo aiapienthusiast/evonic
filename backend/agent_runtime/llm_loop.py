@@ -47,14 +47,17 @@ class EffectiveRequest:
     model: str
     path: str = "primary"
 
-    def derive(self, *, messages=None, provider=None, model=None, path=None):
+    def derive(self, *, messages=None, tools=None, provider=None, model=None, path=None):
         """Derive a provider-compatible representation from this exact payload."""
         from backend.llm_usage_events import estimate_context_tokens
         effective_messages = self.messages if messages is None else messages
+        effective_tools = self.tools if tools is None else tools
         return replace(
             self,
             messages=effective_messages,
+            tools=effective_tools,
             effective_message_tokens=estimate_context_tokens(effective_messages, None),
+            effective_tool_tokens=estimate_context_tokens([], effective_tools),
             provider=self.provider if provider is None else str(provider or ""),
             model=self.model if model is None else str(model or ""),
             path=self.path if path is None else path,
@@ -380,7 +383,9 @@ from config import (AGENT_MAX_TOOL_ITERATIONS as MAX_TOOL_ITERATIONS,
                     ACTIVE_CONTEXT_SOFT_TOKENS,
                     ACTIVE_CONTEXT_CAPACITY_PERCENT,
                     ACTIVE_CONTEXT_RECENT_GROUPS,
-                    ACTIVE_CONTEXT_RECEIPT_MAX_CHARS)
+                    ACTIVE_CONTEXT_RECEIPT_MAX_CHARS,
+                    REQUEST_BUDGET_MODE,
+                    REQUEST_BUDGET_SAFETY_MARGIN)
 
 # RTK token compressor — lazy-init, do NOT load on module import
 _rtk_registry = None
@@ -1007,6 +1012,7 @@ def run_tool_loop(agent: Dict[str, Any],
     # Overflow recovery is derived from the effective payload and consumed by the
     # next provider attempt without mutating the canonical transcript.
     _overflow_request = None
+    _overflow_fingerprints = set()
 
     # Build param view-type lookup: {fn_name: {param_name: view_type}}
     _param_type_map = {}
@@ -1355,6 +1361,33 @@ def run_tool_loop(agent: Dict[str, Any],
         # LOCK ORDERING: Main path — llm_lock only. No other locks held here.
         _enable_thinking_this_call = not _thinking_budget_aborted
         _thinking_stream = _new_thinking_stream(agent_id, session_id)
+        # This final preflight is intentionally adjacent to the provider call:
+        # prior projection is advisory; every actual provider/model target gets
+        # an independently planned payload.
+        from backend.agent_runtime.request_budget import plan_request
+        _required_choice = _required_tool if _required_tool_pending else None
+        _budget_plan = plan_request(
+            _request.messages, _request.tools, tool_choice=_required_choice,
+            context_window=(agent_model_config or {}).get('context_window'),
+            max_tokens=(agent_model_config or {}).get('max_tokens'),
+            thinking_budget=((agent_model_config or {}).get('thinking_budget')
+                             if _enable_thinking_this_call else 0),
+            safety_margin=REQUEST_BUDGET_SAFETY_MARGIN,
+            enforce=REQUEST_BUDGET_MODE == 'enforced',
+        )
+        event_stream.emit('llm_request_budget', {
+            'agent_id': agent_id, 'session_id': session_id, 'attempt': _iteration,
+            'mode': REQUEST_BUDGET_MODE, 'path': _request.path,
+            **_budget_plan.metrics(),
+        })
+        if REQUEST_BUDGET_MODE == 'enforced' and not _budget_plan.fit:
+            _logger.error('request_budget irreducible session=%s path=%s fingerprint=%s',
+                          session_id, _request.path, _budget_plan.fingerprint)
+            return ("The current request exceeds this model's safe context budget and cannot be reduced without removing required context.", tool_trace, timeline)
+        if REQUEST_BUDGET_MODE == 'enforced':
+            _request = _request.derive(messages=_budget_plan.messages, tools=_budget_plan.tools,
+                                       path='budget_' + _budget_plan.stage)
+            _required_choice = _budget_plan.tool_choice
         with llm_lock:
             result = llm.chat_completion(
                 messages=_request.messages,
@@ -1363,7 +1396,7 @@ def run_tool_loop(agent: Dict[str, Any],
                 enable_thinking=_enable_thinking_this_call,
                 max_tokens=None,
                 log_file=llm_log_path,
-                tool_choice=_required_tool if _required_tool_pending else None,
+                tool_choice=_required_choice,
                 **({'stream_callback': _thinking_stream} if _thinking_stream else {}),
             )
         if _thinking_stream:
@@ -1590,55 +1623,39 @@ def run_tool_loop(agent: Dict[str, Any],
                     'error_type': 'context_compaction',
                     'user_message': 'Conversation is too long, automatically compacting...',
                 })
-                # Compact the payload that actually overflowed. The canonical
-                # transcript remains available for persistence, UI, and auditing.
-                _compacted = _emergency_compact_messages(
-                    messages=_request.messages,
-                    llm=llm,
-                    llm_lock=llm_lock,
-                    session_id=session_id,
-                    agent_id=agent_id,
+                # Never use a fixed tail or an unbudgeted summarizer call here.
+                # Re-plan the exact provider payload with a stricter margin; this
+                # is deterministic, protocol-safe, and leaves canonical history intact.
+                from backend.agent_runtime.request_budget import plan_request
+                _retry_plan = plan_request(
+                    _request.messages, _request.tools,
+                    tool_choice=_required_tool if _required_tool_pending else None,
+                    context_window=(agent_model_config or {}).get('context_window'),
+                    max_tokens=(agent_model_config or {}).get('max_tokens'),
+                    thinking_budget=((agent_model_config or {}).get('thinking_budget')
+                                     if _enable_thinking_this_call else 0),
+                    safety_margin=max(REQUEST_BUDGET_SAFETY_MARGIN * 2, 1024),
+                    enforce=True, force_reduction=True,
                 )
-                if _compacted is not None:
+                _previous_size = _request.effective_message_tokens + _request.effective_tool_tokens
+                _retry_size = _retry_plan.estimated_tokens
+                if (_retry_plan.fit and _retry_plan.fingerprint not in _overflow_fingerprints
+                        and _retry_size < _previous_size):
+                    _overflow_fingerprints.add(_retry_plan.fingerprint)
                     _overflow_request = _request.derive(
-                        messages=_compacted, path='context_overflow_retry')
+                        messages=_retry_plan.messages, tools=_retry_plan.tools,
+                        path='context_overflow_budget_retry')
                     event_stream.emit('llm_retry', {
                         'agent_id': agent_id, 'session_id': session_id,
                         'external_user_id': external_user_id, 'channel_id': channel_id,
                         'retry_count': 1, 'max_retries': 1,
-                        'error_type': 'context_compaction',
-                        'user_message': 'Summary complete, resuming...',
+                        'error_type': 'context_budget_retry',
+                        'request_fingerprint': _retry_plan.fingerprint,
                         'effective_request': _overflow_request.metrics(),
                     })
                     continue
-                # Compaction failed: derive a protocol-safe last-ditch truncation
-                # from the same effective payload, never from canonical history.
-                event_stream.emit('llm_retry', {
-                    'agent_id': agent_id, 'session_id': session_id,
-                    'external_user_id': external_user_id, 'channel_id': channel_id,
-                    'retry_count': 0, 'max_retries': 1,
-                    'error_type': 'context_compaction',
-                    'user_message': 'Compaction did not reduce enough. Trying fallback truncation...',
-                })
-                _sys_msgs = [m for m in _request.messages if m.get('role') == 'system']
-                _conv_msgs = [m for m in _request.messages if m.get('role') != 'system']
-                _keep_n = 6
-                if len(_conv_msgs) > _keep_n:
-                    _truncated = _sys_msgs + _conv_msgs[-_keep_n:]
-                    _truncated.append({
-                        'role': 'system',
-                        'content': (
-                            "[SYSTEM] The conversation was truncated because it grew "
-                            "too large for the model's context window. The most recent "
-                            "messages have been preserved. Please continue.")})
-                    _overflow_request = _request.derive(
-                        messages=_truncated, path='context_overflow_truncation')
-                    _logger.warning(
-                        "Emergency request truncation applied for session %s: %d -> %d messages",
-                        session_id, len(_request.messages), len(_truncated))
-                    continue
-                # A no-op truncation falls through to the fallback model, which
-                # reuses this request snapshot rather than restoring canonical data.
+                _logger.warning('context overflow cannot be monotonically reduced session=%s fingerprint=%s',
+                                session_id, _retry_plan.fingerprint)
 
             if _compaction_attempted:
                 event_stream.emit('llm_retry', {
@@ -1716,27 +1733,58 @@ def run_tool_loop(agent: Dict[str, Any],
                             _logger.warning(
                                 "Stripped image content for fallback model %s (%s) — fallback does not support vision",
                                 _fallback_model.get('name'), _fallback_model.get('model_name'))
-                    event_stream.emit('llm_effective_request', {
+                    # Re-plan after fallback vision adaptation: fallback capacity
+                    # and provider framing may be smaller than the primary model.
+                    from backend.agent_runtime.request_budget import plan_request
+                    _fallback_choice = _required_tool if _required_tool_pending else None
+                    _fallback_plan = plan_request(
+                        _fallback_request.messages, _fallback_request.tools,
+                        tool_choice=_fallback_choice,
+                        context_window=_fallback_config.get('context_window'),
+                        max_tokens=_fallback_config.get('max_tokens'),
+                        thinking_budget=(_fallback_config.get('thinking_budget')
+                                         if _enable_thinking_this_call else 0),
+                        safety_margin=REQUEST_BUDGET_SAFETY_MARGIN,
+                        enforce=REQUEST_BUDGET_MODE == 'enforced',
+                    )
+                    event_stream.emit('llm_request_budget', {
                         'agent_id': agent_id, 'session_id': session_id,
-                        **_fallback_request.metrics(),
+                        'attempt': _iteration, 'mode': REQUEST_BUDGET_MODE,
+                        'path': 'fallback', **_fallback_plan.metrics(),
                     })
-                    with llm_lock:
-                        _fb_stream = _new_thinking_stream(agent_id, session_id)
-                        if _fb_stream:
-                            _fb_stream.reset(force=True)   # clear whatever the failed primary attempt streamed
-                        _fallback_result = _fallback_llm.chat_completion(
-                            messages=_fallback_request.messages,
-                            tools=_fallback_request.tools,
-                            temperature=None,
-                            enable_thinking=_enable_thinking_this_call,
-                            max_tokens=None,
-                            log_file=llm_log_path,
-                            tool_choice=(
-                                _required_tool if _required_tool_pending else None),
-                            **({'stream_callback': _fb_stream} if _fb_stream else {}),
-                        )
-                        if _fb_stream:
-                            _fb_stream.flush()
+                    if REQUEST_BUDGET_MODE == 'enforced' and not _fallback_plan.fit:
+                        _logger.error('fallback request_budget irreducible session=%s fingerprint=%s',
+                                      session_id, _fallback_plan.fingerprint)
+                        _fallback_result = {'success': False, 'error_type': 'context_budget_exceeded',
+                                            'error_detail': _fallback_plan.diagnostic}
+                    else:
+                        if (REQUEST_BUDGET_MODE == 'enforced'
+                                and _fallback_plan.stage != 'initial'):
+                            _fallback_request = _fallback_request.derive(
+                                messages=_fallback_plan.messages, tools=_fallback_plan.tools,
+                                path='fallback_budget_' + _fallback_plan.stage)
+                        _fallback_choice = _fallback_plan.tool_choice
+                        event_stream.emit('llm_effective_request', {
+                            'agent_id': agent_id, 'session_id': session_id,
+                            **_fallback_request.metrics(),
+                        })
+                    if REQUEST_BUDGET_MODE != 'enforced' or _fallback_plan.fit:
+                        with llm_lock:
+                            _fb_stream = _new_thinking_stream(agent_id, session_id)
+                            if _fb_stream:
+                                _fb_stream.reset(force=True)   # clear failed primary output
+                            _fallback_result = _fallback_llm.chat_completion(
+                                messages=_fallback_request.messages,
+                                tools=_fallback_request.tools,
+                                temperature=None,
+                                enable_thinking=_enable_thinking_this_call,
+                                max_tokens=None,
+                                log_file=llm_log_path,
+                                tool_choice=_fallback_choice,
+                                **({'stream_callback': _fb_stream} if _fb_stream else {}),
+                            )
+                            if _fb_stream:
+                                _fb_stream.flush()
                     if _fallback_result.get('success'):
                         _logger.info(
                             "Fallback model %s succeeded for agent %s — using for remaining iterations",
