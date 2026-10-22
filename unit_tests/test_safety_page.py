@@ -132,8 +132,22 @@ def test_dmss_tester_offers_ready_to_submit_samples():
         assert f'data-sample="{sample}"' in html
     assert html.count('class="sf-tester-sample"') >= 4
     # Bumped asset versions so the new wiring/CSS is not served stale.
-    assert "js/safety.js?v=11" in html
-    assert "css/safety.css?v=13" in html
+    assert "js/safety.js?v=12" in html
+    assert "css/safety.css?v=14" in html
+
+
+def test_dmss_provider_endpoint_has_a_connectivity_test_button():
+    """The provider endpoint row exposes a Test action plus an inline verdict slot."""
+    client = _client()
+    html = client.get("/system/safety").get_data(as_text=True)
+
+    assert 'id="dc-endpoint-test"' in html
+    assert 'id="dc-endpoint-test-result"' in html
+    # The verdict is announced to assistive technology.
+    assert 'role="status" aria-live="polite"' in html
+    # The Test control sits directly after the endpoint input in the same row.
+    assert html.index('id="dc-endpoint"') < html.index('id="dc-endpoint-test"')
+    assert html.index('id="dc-endpoint-test"') - html.index('id="dc-endpoint"') < 900
 
 
 def test_dmss_endpoint_is_plaintext_and_primary_buttons_are_dark_mode_readable():

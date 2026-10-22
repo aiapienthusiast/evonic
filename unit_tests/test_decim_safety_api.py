@@ -583,3 +583,137 @@ def test_tester_response_does_not_include_provider_endpoint():
     # The diagnostic response is provider-neutral: it never echoes the endpoint.
     assert endpoint not in str(body)
     assert "internal.example" not in str(body)
+
+
+# ---------------------------------------------------------------------------
+# Provider endpoint connectivity test (task #895)
+# ---------------------------------------------------------------------------
+
+def _configure_endpoint(client):
+    """Persist a provider endpoint so the probe has something to call."""
+    client.put("/api/settings/decim-safety",
+               json={"provider_endpoint": "https://provider.example/decision"})
+
+
+def test_endpoint_test_reports_ok_for_a_healthy_provider():
+    client = _client()
+    _configure_endpoint(client)
+    calls = []
+    with patch("backend.tools.lib.decim_safety.SystemOneDecisionProvider",
+               _fake_provider_class(calls)):
+        response = client.post("/api/admin/decim-safety/endpoint/test", json={})
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["success"] is True
+    assert body["ok"] is True
+    assert body["diagnostic"] is True
+    assert body["decision"] == "allow"
+    assert body["confidence"] == 0.99
+    assert body["latency_ms"] == 12
+    assert body["fallback_reason"] is None
+    assert "valid decision" in body["message"].lower()
+    # A fixed, minimal diagnostic payload was used (data, never executed).
+    assert calls and calls[0]["requested_code"] == "echo ok"
+    assert body["checked_at"]
+
+
+def test_endpoint_test_probes_an_override_without_persisting_it():
+    client = _client()
+    calls = []
+    with patch("backend.tools.lib.decim_safety.SystemOneDecisionProvider",
+               _fake_provider_class(calls)):
+        body = client.post("/api/admin/decim-safety/endpoint/test",
+                           json={"endpoint": "https://typed.example/decision"}).get_json()
+    assert body["ok"] is True
+    assert calls, "the override must reach the provider adapter"
+    # The typed value never becomes configuration.
+    assert db.get_setting("decim_safety.provider_endpoint", "") == ""
+
+
+def test_endpoint_test_reports_unreachable_provider():
+    from backend.tools.lib.decim_safety import DecimProviderError
+
+    class FailingProvider:
+        key = "systemone"
+
+        def decide(self, packet, settings):
+            raise DecimProviderError("transport_error")
+
+    client = _client()
+    _configure_endpoint(client)
+    with patch("backend.tools.lib.decim_safety.SystemOneDecisionProvider", FailingProvider):
+        body = client.post("/api/admin/decim-safety/endpoint/test", json={}).get_json()
+    assert body["success"] is True   # the request was processed
+    assert body["ok"] is False       # ...and the verdict is a failure
+    assert body["decision"] is None
+    assert body["fallback_reason"] == "transport_error"
+    assert "unreachable" in body["message"].lower()
+    assert body["latency_ms"] is not None
+
+
+def test_endpoint_test_reports_unconfigured_provider():
+    client = _client()
+    with patch.dict(os.environ, {"DECIM_SAFETY_SYSTEMONE_ENDPOINT": ""}):
+        body = client.post("/api/admin/decim-safety/endpoint/test", json={}).get_json()
+    assert body["ok"] is False
+    assert body["fallback_reason"] == "provider_unconfigured"
+    assert "no provider endpoint" in body["message"].lower()
+
+
+def test_endpoint_test_rejects_invalid_override_url():
+    client = _client()
+    response = client.post("/api/admin/decim-safety/endpoint/test",
+                           json={"endpoint": "file:///etc/passwd"})
+    assert response.status_code == 400
+    assert "absolute http(s) URL" in response.get_json()["error"]
+
+    assert client.post("/api/admin/decim-safety/endpoint/test",
+                       json={"endpoint": 5}).status_code == 400
+    assert client.post("/api/admin/decim-safety/endpoint/test",
+                       data="nope", content_type="text/plain").status_code == 400
+
+
+def test_endpoint_test_is_rate_limited_per_session():
+    client = _client()
+    _configure_endpoint(client)
+    with patch("backend.tools.lib.decim_safety.SystemOneDecisionProvider",
+               _fake_provider_class([])):
+        for _ in range(10):
+            assert client.post("/api/admin/decim-safety/endpoint/test",
+                               json={}).status_code == 200
+        response = client.post("/api/admin/decim-safety/endpoint/test", json={})
+    assert response.status_code == 429
+    assert response.get_json()["ok"] is False
+    assert response.get_json()["retry_after"] > 0
+    assert response.headers.get("Retry-After")
+
+
+def test_endpoint_test_does_not_trip_the_production_circuit_breaker():
+    from backend.tools.lib.decim_safety import DecimProviderError, get_decim_safety_resolver
+
+    class FailingProvider:
+        key = "systemone"
+
+        def decide(self, packet, settings):
+            raise DecimProviderError("transport_error")
+
+    client = _client()
+    _configure_endpoint(client)
+    with patch("backend.tools.lib.decim_safety.SystemOneDecisionProvider", FailingProvider):
+        for _ in range(5):  # beyond the default 3-failure breaker threshold
+            assert client.post("/api/admin/decim-safety/endpoint/test",
+                               json={}).get_json()["ok"] is False
+    assert get_decim_safety_resolver().breaker.state() == "closed"
+
+
+def test_endpoint_test_does_not_echo_the_endpoint():
+    client = _client()
+    endpoint = "https://provider.internal.example:9443/decision/very-secret"
+    calls = []
+    with patch("backend.tools.lib.decim_safety.SystemOneDecisionProvider",
+               _fake_provider_class(calls)):
+        body = client.post("/api/admin/decim-safety/endpoint/test",
+                           json={"endpoint": endpoint}).get_json()
+    assert body["ok"] is True
+    assert endpoint not in str(body)
+    assert "internal.example" not in str(body)

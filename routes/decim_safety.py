@@ -23,6 +23,9 @@ import logging
 import re
 import threading
 import time
+from dataclasses import replace
+from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 from flask import Blueprint, jsonify, redirect, request, session
 
@@ -387,3 +390,136 @@ def api_decim_safety_test():
         fallback_reason = "low_confidence"
 
     return jsonify(_tester_result(settings, decision, fallback_reason, payload, tool_type)), 200
+
+
+# ---------------------------------------------------------------------------
+# Provider endpoint connectivity test (task #895)
+#
+# One-click health check behind the "Test" button next to the endpoint field.
+# It sends a short, fixed diagnostic payload through the real provider adapter
+# (the only contract the provider exposes) and reports whether the endpoint
+# answered with a valid decision.  An isolated resolver is used so failures can
+# never trip the production circuit breaker, and nothing is written to
+# telemetry.  The request may carry an ``endpoint`` override so the UI can test
+# an unsaved value without persisting it first.
+# ---------------------------------------------------------------------------
+
+_ENDPOINT_TEST_PAYLOAD = "echo ok"
+_ENDPOINT_TEST_DETAIL_MAX = 300
+
+_ENDPOINT_TEST_FAILURE_TEXT = {
+    "provider_unconfigured": "No provider endpoint is configured.",
+    "transport_error": "Endpoint unreachable: connection refused, DNS lookup failed, or the request timed out.",
+    "http_error": "Endpoint is reachable but answered with a non-2xx HTTP status.",
+    "invalid_response": "Endpoint answered but the body was not a valid decision response.",
+    "redirect_rejected": "Endpoint redirected the request; redirects are rejected.",
+    "response_too_large": "Endpoint response exceeded the size limit.",
+    "payload_too_large": "The configured maximum payload is too small for even a minimal health check.",
+    "provider_error": "Endpoint probe failed unexpectedly.",
+}
+
+
+def _probe_endpoint(settings):
+    """Run one bounded probe; return ``(decision, fallback_reason, latency_ms)``."""
+    from backend.tools.lib.decim_safety import (
+        DecimProviderError, DecimSafetyResolver, build_policy_packet,
+    )
+
+    # Fresh resolver: a failed health check must not open the production circuit.
+    resolver = DecimSafetyResolver()
+    provider = resolver.providers.get(settings.provider)
+    if provider is None:
+        return None, "provider_unconfigured", None
+
+    started = time.monotonic()
+    try:
+        packet = build_policy_packet(
+            _ENDPOINT_TEST_PAYLOAD, "bash", "sandboxed_docker",
+            settings.max_payload_chars,
+        )
+        # decide() enforces settings.request_timeout_ms on the provider call.
+        decision = provider.decide(packet, settings)
+    except DecimProviderError as exc:
+        return None, exc.category, int((time.monotonic() - started) * 1000)
+    except Exception:
+        logger.exception("Decim endpoint connectivity test failed unexpectedly")
+        return None, "provider_error", int((time.monotonic() - started) * 1000)
+    return decision, None, decision.latency_ms
+
+
+@decim_safety_bp.route("/api/admin/decim-safety/endpoint/test", methods=["POST"])
+def api_decim_safety_endpoint_test():
+    """Connectivity/health check for the configured provider endpoint.
+
+    Request (optional body): ``{"endpoint": "<absolute http(s) URL>"}``.  When
+    ``endpoint`` is present and non-empty it is probed *without being persisted*;
+    otherwise the saved configuration is used.  The response always carries an
+    explicit ``ok`` verdict so the UI can render pass/fail, plus a
+    provider-neutral ``message`` explaining any failure.
+    """
+    from backend.tools.lib.decim_safety import load_decim_settings
+
+    if (request.content_length or 0) > _TESTER_MAX_BODY_BYTES:
+        return jsonify({"success": False, "ok": False,
+                        "error": "request body too large for an endpoint test"}), 413
+
+    data = request.get_json(silent=True)
+    if data is None:
+        # An empty body probes the saved configuration; anything else is invalid.
+        if (request.content_length or 0) > 0:
+            return jsonify({"success": False, "ok": False, "error": "expected a JSON object"}), 400
+        data = {}
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "ok": False, "error": "expected a JSON object"}), 400
+
+    override = data.get("endpoint")
+    if override is not None and not isinstance(override, str):
+        return jsonify({"success": False, "ok": False, "error": "endpoint must be a string"}), 400
+    if isinstance(override, str):
+        override = override.strip()
+        if override:
+            parsed = urlparse(override)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                return jsonify({"success": False, "ok": False,
+                                "error": "endpoint must be an absolute http(s) URL"}), 400
+
+    retry_after = _tester_rate_limit()
+    if retry_after is not None:
+        resp = jsonify({"success": False, "ok": False, "error": "rate limit exceeded",
+                        "retry_after": retry_after})
+        resp.headers["Retry-After"] = str(retry_after)
+        return resp, 429
+
+    settings = load_decim_settings()
+    if override:
+        # Probe the typed value without touching persisted configuration.
+        settings = replace(settings, provider_endpoint=override)
+
+    decision, fallback_reason, latency_ms = _probe_endpoint(settings)
+    ok = decision is not None
+    message = ("Endpoint answered with a valid decision." if ok
+               else _ENDPOINT_TEST_FAILURE_TEXT.get(fallback_reason, "Endpoint probe failed."))
+
+    circuit_state = "closed"
+    try:
+        from backend.tools.lib.decim_safety import get_decim_safety_resolver
+        circuit_state = get_decim_safety_resolver().breaker.state()
+    except Exception:
+        logger.exception("Unable to read Decim Safety circuit state for endpoint test")
+
+    return jsonify({
+        "success": True,
+        "ok": ok,
+        "diagnostic": True,
+        "provider": settings.provider,
+        "mode": settings.mode,
+        "dmss_active": bool(settings.enabled) and settings.mode != "off",
+        "circuit_state": circuit_state,
+        "latency_ms": latency_ms,
+        "decision": decision.decision if decision is not None else None,
+        "confidence": decision.confidence if decision is not None else None,
+        "model": decision.model_id if decision is not None else None,
+        "fallback_reason": fallback_reason,
+        "message": message[:_ENDPOINT_TEST_DETAIL_MAX],
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }), 200

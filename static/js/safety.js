@@ -804,6 +804,109 @@
                     el.addEventListener("blur", function () { self._flushField(name); });
                 }
             });
+
+            // One-click connectivity check beside the endpoint field (task #895).
+            var testBtn = qs("#dc-endpoint-test");
+            if (testBtn) {
+                testBtn.addEventListener("click", function () { self.testEndpoint(); });
+            }
+            // A new URL invalidates the previous verdict.
+            var endpointInput = qs("#dc-endpoint");
+            if (endpointInput) {
+                endpointInput.addEventListener("input", function () { self._clearEndpointTest(); });
+            }
+        },
+
+        /* ---------- Endpoint connectivity test (task #895) ----------
+         * POSTs the value currently in the field, so an unsaved edit is tested
+         * exactly as typed. The probe is diagnostic only: production decisions,
+         * telemetry and the production circuit breaker are untouched. */
+        _endpointTesting: false,
+
+        _clearEndpointTest() {
+            var out = qs("#dc-endpoint-test-result");
+            if (!out) return;
+            out.hidden = true;
+            out.className = "dc-test-result";
+            out.innerHTML = "";
+        },
+
+        /* state: "pending" | "ok" | "err" */
+        _renderEndpointTest(state, message, detail) {
+            var out = qs("#dc-endpoint-test-result");
+            if (!out) return;
+            out.hidden = false;
+            out.className = "dc-test-result is-" + state;
+            if (state === "pending") {
+                out.innerHTML = '<div class="dc-test-line"><span class="spinner"></span><span class="dc-test-msg">' +
+                    esc(message) + "</span></div>";
+                return;
+            }
+            var badge = state === "ok" ? "sf-badge-ok" : "sf-badge-err";
+            var label = state === "ok" ? "Success" : "Failed";
+            out.innerHTML =
+                '<div class="dc-test-line"><span class="sf-badge ' + badge + '">' + label + "</span>" +
+                '<span class="dc-test-msg">' + esc(message) + "</span></div>" +
+                (detail ? '<div class="dc-test-meta">' + esc(detail) + "</div>" : "");
+        },
+
+        testEndpoint() {
+            if (this._endpointTesting) return;
+            var input = qs("#dc-endpoint");
+            var btn = qs("#dc-endpoint-test");
+            var value = input ? input.value.trim() : "";
+            var invalid = value ? this._fieldError("endpoint", value) : "";
+            if (invalid) {
+                this._setConfigError("endpoint", invalid);
+                this._renderEndpointTest("err", invalid);
+                if (input) input.focus();
+                return;
+            }
+            this._setConfigError("endpoint", "");
+
+            var self = this;
+            this._endpointTesting = true;
+            if (btn) { btn.disabled = true; btn.classList.add("is-busy"); }
+            this._renderEndpointTest("pending", "Checking the provider endpoint\u2026");
+
+            fetch(this.API + "/endpoint/test", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                // An empty field means "test whatever is configured" (the probe
+                // then reads the saved value, including any environment default).
+                body: JSON.stringify(value ? { endpoint: value } : {}),
+            }).then(function (r) {
+                return r.json().then(function (d) { return { ok: r.ok, status: r.status, data: d }; });
+            }).then(function (res) {
+                self._endpointTesting = false;
+                if (btn) { btn.disabled = false; btn.classList.remove("is-busy"); }
+                var d = res.data || {};
+                if (!res.ok) {
+                    if (res.status === 429) {
+                        self._renderEndpointTest("err",
+                            "Rate limit exceeded \u2014 try again in " + (d.retry_after || "a few") +
+                            " s (max 10 tests/min).");
+                    } else {
+                        self._renderEndpointTest("err",
+                            d.error || ("Endpoint test failed (HTTP " + res.status + ")."));
+                    }
+                    return;
+                }
+                var meta = [];
+                if (d.latency_ms != null) meta.push("latency " + fmtNum(d.latency_ms) + " ms");
+                if (d.decision) meta.push("decision " + d.decision);
+                if (d.confidence != null) meta.push("confidence " + (Math.round(d.confidence * 100) / 100));
+                if (d.model) meta.push("model " + d.model);
+                if (!d.ok && d.fallback_reason) meta.push("reason " + d.fallback_reason);
+                self._renderEndpointTest(d.ok ? "ok" : "err",
+                    d.message || (d.ok ? "Endpoint healthy." : "Endpoint test failed."),
+                    meta.join(" \u00b7 "));
+            }).catch(function (e) {
+                console.error("DMSS endpoint test failed:", e);
+                self._endpointTesting = false;
+                if (btn) { btn.disabled = false; btn.classList.remove("is-busy"); }
+                self._renderEndpointTest("err", "Network error \u2014 could not reach the server.");
+            });
         },
 
         _fieldValue(name) {

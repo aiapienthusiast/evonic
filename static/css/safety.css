@@ -1188,6 +1188,31 @@ html.dark [data-policy="dmss"][data-mode="enforce"] .sg-step-dmss .sg-step-dot {
 }
 .dc-affix .sf-input { padding-left: 2.25rem; font-family: var(--sf-mono); font-size: 0.8rem; }
 
+/* endpoint row: input + one-click connectivity test (task #895) */
+.dc-endpoint-row { display: flex; align-items: stretch; gap: 0.5rem; }
+.dc-endpoint-row .dc-affix { flex: 1 1 auto; min-width: 0; }
+.dc-test-btn { flex: 0 0 auto; height: 2.5rem; padding: 0 0.9rem; white-space: nowrap; }
+.dc-test-btn.is-busy { opacity: 0.7; cursor: progress; }
+.dc-test-btn .spinner { width: 14px; height: 14px; }
+
+.dc-test-result {
+    margin-top: 0.5rem;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--st-line);
+    border-radius: 0.5rem;
+    background: var(--st-field-bg);
+    font-size: 0.78rem;
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+.dc-test-result[hidden] { display: none; }
+.dc-test-result.is-ok { border-color: rgba(16, 185, 129, 0.45); }
+.dc-test-result.is-err { border-color: var(--sf-err); }
+.dc-test-line { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.dc-test-msg { color: var(--text-heading); }
+.dc-test-meta { margin-top: 0.25rem; color: var(--text-muted); font-size: 0.72rem; }
+.dc-test-result.is-pending .spinner { width: 14px; height: 14px; }
+
 /* number field: [-] [ 12,000  chars ] [+] as one control */
 .dc-num {
     display: flex;

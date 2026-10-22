@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=19">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/safety.css') }}?v=13">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/safety.css') }}?v=14">
 
 <div class="settings-console safety-console">
     <div class="settings-console-header">
@@ -300,11 +300,17 @@
                         <span class="dc-desc">Absolute http(s) URL of the provider decision service. Stored as plain configuration and shown here in full.</span>
                     </div>
                     <div class="dc-row-control">
-                        <div class="dc-affix">
-                            <i data-lucide="globe" aria-hidden="true"></i>
-                            <input id="dc-endpoint" class="sf-input" type="text" autocomplete="off" spellcheck="false" placeholder="https://…">
+                        <div class="dc-endpoint-row">
+                            <div class="dc-affix">
+                                <i data-lucide="globe" aria-hidden="true"></i>
+                                <input id="dc-endpoint" class="sf-input" type="text" autocomplete="off" spellcheck="false" placeholder="https://…">
+                            </div>
+                            <button type="button" class="sf-btn dc-test-btn" id="dc-endpoint-test">
+                                <i data-lucide="plug-zap" aria-hidden="true"></i><span>Test</span>
+                            </button>
                         </div>
                         <span class="sf-field-err" id="dc-err-endpoint" hidden></span>
+                        <div id="dc-endpoint-test-result" class="dc-test-result" role="status" aria-live="polite" hidden></div>
                     </div>
                 </div>
             </fieldset>
@@ -543,5 +549,5 @@
 </div>
 
 {% include 'partials/dmss/activity-modal.html' %}
-<script src="{{ url_for('static', filename='js/safety.js') }}?v=11"></script>
+<script src="{{ url_for('static', filename='js/safety.js') }}?v=12"></script>
 {% endblock %}
