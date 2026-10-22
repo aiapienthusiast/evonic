@@ -9,13 +9,10 @@ The backend is resolved per-session from the backend registry:
 New backends (E2B, etc.) plug in without changing this file.
 """
 
-import re
-
 # Re-export shared utils that other modules (bash.py, etc.) have historically
 # imported from here. Keeps backwards compatibility.
+from backend.tools.lib.agent_env import build_agent_env
 from backend.tools.lib.exec_backend import registry, validate_env_keys, truncate
-
-_VALID_ENV_KEY_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 
 # Keep these names importable from runpy for any code that imported them before
 _validate_env_keys = validate_env_keys
@@ -127,11 +124,7 @@ def execute(agent_context: dict, args: dict) -> dict:
 
     # Auto-inject agent variables as environment variables (base layer).
     # LLM-specified env takes priority over agent variables.
-    agent_vars = (agent_context or {}).get('variables') or {}
-    if agent_vars:
-        base = {k: str(v) for k, v in agent_vars.items() if _VALID_ENV_KEY_RE.match(k)}
-        base.update(env)
-        env = base
+    env = {**build_agent_env(agent_context), **env}
 
     env, err = validate_env_keys(env)
     if err:

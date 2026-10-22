@@ -423,9 +423,17 @@ def run_monitor_poll(action_config: dict) -> dict:
         _logger.warning("[monitor] backend resolve failed: %s", e)
         return {"done": False, "state": "backend_error"}
 
+    # The shell predicate is agent-authored and may reference the agent's own
+    # variables (e.g. an API token), so expose them for that probe only. Status
+    # and log probes contain no agent-authored shell and stay env-free.
+    probe_env = {}
+    if when.get("shell"):
+        from backend.tools.lib.agent_env import build_agent_env
+        probe_env = build_agent_env(agent, action_config.get("agent_id") or "")
+
     try:
         res = backend.run_bash(action_config.get("probe_script") or "",
-                               _POLL_TIMEOUT, {})
+                               _POLL_TIMEOUT, probe_env)
     except Exception as e:
         _logger.warning("[monitor] probe failed: %s", e)
         return {"done": False, "state": "probe_error"}
