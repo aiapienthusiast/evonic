@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-10-23
+
+### Bug Fixes
+
+- Monitor shell predicates now run with the agent's declared variables, so a probe that references a token (e.g. `$GITLAB_PAT`) no longer evaluates to an empty value and silently expires without firing.
+- Consolidated agent-variable environment resolution into one helper shared by the bash tool, the runpy tool, and monitor probes.
+
 ## [1.5.0] - 2026-10-16
 
 ### Features
