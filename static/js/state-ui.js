@@ -185,7 +185,8 @@
         var h = '<div class="st-sec"><div class="st-sec-h">' + ICON.tasks + '<span>Tasks</span><span class="st-sec-r" title="' + done.length + ' of ' + d.tasks.length + ' done">' + pct + '% · ' + done.length + '/' + d.tasks.length + '</span></div>';
         h += '<div class="st-tasks-progress"><div class="st-meter"><div style="width:' + pct + '%;background:#22c55e"></div></div></div>';
         if (done.length) {
-            h += '<details class="st-done" ' + (global._stTasksDoneOpen !== false ? 'open' : '') + ' ontoggle="_stTasksDoneOpen = this.open">'
+            var doneOpen = global._stTasksDoneOpen !== undefined ? global._stTasksDoneOpen : done.length < 10;
+            h += '<details class="st-done" ' + (doneOpen ? 'open' : '') + ' ontoggle="_stTasksDoneOpen = this.open">'
                + '<summary class="st-done-toggle">' + ICON.chev + '<span>Completed (' + done.length + ')</span></summary><ul>' + done.map(row).join('') + '</ul></details>';
         }
         if (open.length) h += '<ul>' + open.map(row).join('') + '</ul>';
