@@ -1929,11 +1929,12 @@ html.dark #tab-general { --gs-line: rgb(148 163 184 / .22); --gs-surface: rgb(14
                         <p class="text-xs text-gray-400 mt-1">Optional regex matched against the canonical path before file metadata or content is exposed. Traversal and symlink aliases are resolved first.</p>
                     </div>
                             </div>
-                            <div class="adv-item adv-row" data-adv-item>
+                            <div class="adv-item adv-row" data-adv-item id="run-as-user-row">
 <div>
-                        <label class="block mb-1 text-gray-600 dark:text-gray-300 text-sm font-medium">Run As User</label>
-                        <input type="text" id="agent-run-as-user" value="{{ agent.run_as_user or '' }}" placeholder="e.g. webdev" class="w-full p-2.5 border border-gray-300 rounded-md text-sm font-mono focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/10">
-                        <p class="text-xs text-gray-400 mt-1">Linux username to execute bash/python commands as (via <code>sudo -u</code>). Only applies when sandbox is disabled. Leave empty to run as the default process user. Only super agents can set this.</p>
+                        <label id="run-as-user-label" class="block mb-1 text-gray-600 dark:text-gray-300 text-sm font-medium">Run As User</label>
+                        <input type="text" id="agent-run-as-user" value="{{ agent.run_as_user or '' }}" placeholder="e.g. webdev" class="w-full p-2.5 border border-gray-300 rounded-md text-sm font-mono focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/10" aria-describedby="run-as-user-note">
+                        <p class="text-xs text-gray-400 mt-1">Linux username to execute bash/python commands as (via <code>sudo -u</code>). Only applies when <strong>no Workplace is assigned</strong> and the sandbox is disabled. Leave empty to run as the default process user. Only super agents can set this.</p>
+                        <div id="run-as-user-note" class="hidden ag-note" role="note"></div>
                     </div>
                             </div>
                         </div>
@@ -9053,6 +9054,7 @@ function updateWorkspaceVisibility() {
         workspaceRow.classList.remove('hidden');
     }
     updateSandboxVisibility();
+    updateRunAsUserVisibility();
 }
 
 // ==================== Workplace chip + quick-switch picker ====================
@@ -9414,6 +9416,34 @@ function updateSandboxVisibility() {
         sandboxInput.checked = INITIAL_SANDBOX_STATE;
         sandboxLabel.classList.remove('opacity-50', 'cursor-not-allowed');
         sandboxWarning.classList.add('hidden');
+    }
+}
+
+// Run As User is honoured by the local backend only (sudo -u). An Evonet agent
+// executes its commands as the user running the Evonet tunnel process on the
+// target host, so the setting is disabled there and the reason is spelled out.
+// The stored value is left untouched: removing the workplace re-enables it.
+const RUN_AS_USER_EVONET_NOTE = '\u26a0 Not applicable \u2014 this agent runs on an Evonet (tunnel) workplace. '
+    + 'Commands run as the OS user running the Evonet tunnel process on the target host. '
+    + 'Change that user on the host (e.g. <code>User=</code> in the Evonet service), not here.';
+
+function updateRunAsUserVisibility() {
+    const sel = document.getElementById('agent-workplace-id');
+    const input = document.getElementById('agent-run-as-user');
+    const label = document.getElementById('run-as-user-label');
+    const note = document.getElementById('run-as-user-note');
+    if (!sel || !input || !note) return;
+    const selectedOpt = sel.options[sel.selectedIndex];
+    const homeType = selectedOpt ? selectedOpt.dataset.type : '';
+    if (homeType === 'tunnel') {
+        input.disabled = true;
+        if (label) label.classList.add('opacity-50', 'cursor-not-allowed');
+        note.innerHTML = RUN_AS_USER_EVONET_NOTE;
+        note.classList.remove('hidden');
+    } else {
+        input.disabled = false;
+        if (label) label.classList.remove('opacity-50', 'cursor-not-allowed');
+        note.classList.add('hidden');
     }
 }
 
