@@ -39,22 +39,19 @@
     <script src="{{ url_for('static', filename='js/realtime.js') }}?v=3" defer></script>
     <script src="{{ url_for('static', filename='js/approval-modal.js') }}?v=2" defer></script>
     <script src="{{ url_for('static', filename='js/katex.min.js') }}?v=1" defer></script>
+    <!-- Synchronous: page scripts (chat-ui.js, inline renderers) must see
+         EvMarkdownMath at parse time; it reads window.katex lazily on each call. -->
+    <script src="{{ url_for('static', filename='js/markdown-math.js') }}?v=1"></script>
     <script>
     // Global KaTeX math renderer for markdown content.
     // Used by inline scripts on agent_detail, sessions, history, etc.
+    // Currency-safe rules live in one place: js/markdown-math.js (EvMarkdownMath.render).
     function renderMathGlobal(html) {
-        if (typeof katex === 'undefined' || !html) return html || '';
-        try {
-            var codeBlocks = [];
-            var safe = html.replace(/<pre\b[^>]*>[\s\S]*?<\/pre>/gi, function (m) { codeBlocks.push(m); return '\x00CODE' + (codeBlocks.length - 1) + '\x00'; });
-            safe = safe.replace(/<code\b[^>]*>[\s\S]*?<\/code>/gi, function (m) { codeBlocks.push(m); return '\x00CODE' + (codeBlocks.length - 1) + '\x00'; });
-            safe = safe.replace(/\$\$([\s\S]*?)\$\$/g, function (m, f) { try { return katex.renderToString(f, {displayMode:true,throwOnError:false}); } catch(e) { return m; } });
-            safe = safe.replace(/(?<!\$)\$(?!\$)([\s\S]*?)(?<!\$)\$(?!\$)/g, function (m, f) { try { return katex.renderToString(f, {displayMode:false,throwOnError:false}); } catch(e) { return m; } });
-            safe = safe.replace(/\x00CODE(\d+)\x00/g, function (m, idx) { return codeBlocks[parseInt(idx,10)] || m; });
-            return safe;
-        } catch (e) {
-            return html;
+        if (!html) return html || '';
+        if (window.EvMarkdownMath && typeof window.EvMarkdownMath.render === 'function') {
+            return window.EvMarkdownMath.render(html);
         }
+        return html;
     }
     </script>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=55">
