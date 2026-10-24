@@ -2,12 +2,41 @@
 
 ## [Unreleased]
 
-## [1.5.1] - 2026-10-23
+## [1.5.6] - 2026-10-24
+
+### Features
+
+- Added a quick workplace switcher in the chat header with a searchable picker for large workplace lists, switch-context handling, and an opt-in `switch_workplace` tool that lets an agent move itself between workplaces. Portals can now be created from existing workplaces only.
+- Redesigned model management: model cards with a one-click endpoint ping, deleting a provider together with its models, AI brand marks in the model switcher, and per-session model switching from the state panel.
+- Chat now shows who decided each safety verdict in the thinking timeline, including the triggering verdict, flagged categories, and the real decision maker behind an approval (web, Telegram, WhatsApp, Discord, agent, or timeout).
+- Added configurable TOTP two-factor authentication.
+- Safety: one-click provider endpoint connectivity test, a DMSS activity detail modal with redacted command preview, and auto-saving policy and DMSS configuration with a redesigned HMADS and DMSS tab layout.
+- Runtime: request budget preflight, active session monitors shown in the state panel, and a rendered Markdown plan modal with an editable tab.
+- Added portrait and landscape sizes to all image-generator providers.
+- Evonet: a single Portal card with Workplace and Path panels, and icons per workplace kind.
+
+### Improvements
+
+- Chat and state panel: workplace switched divider, connection notice above the composer, ask_user card docking, collapsed long completed-task lists, improved chat rendering, and refreshed update-banner styling.
+- Settings: aligned Variables and Plugin Settings headers, tidier Models & Routing and Vision rows, cleaner combobox focus ring, and a real input field for the `Other` ask_user answer.
+- Evonet: removed idle GUI polling, cancel in-flight dial on shutdown, and prevented server-switch UI stalls.
 
 ### Bug Fixes
 
+- Fixed session state not loading on initial chat open, CMP being dropped by the plan command, stale slash-command hints, and the workplace header chip not following an agent-initiated switch.
+- Fixed currency amounts being mangled by the KaTeX rendering pipeline in chat.
+- Fixed structured tool error rendering and binary artifact writes that exceeded the Evonet read limit.
+- Kanban tasks now require an assignee before they can be started.
 - Monitor shell predicates now run with the agent's declared variables, so a probe that references a token (e.g. `$GITLAB_PAT`) no longer evaluates to an empty value and silently expires without firing.
 - Consolidated agent-variable environment resolution into one helper shared by the bash tool, the runpy tool, and monitor probes.
+
+### Tests
+
+- Added and stabilized coverage for the slash-command hint, session state handlers, chat-ui.js cache-busting, the ask_user card, chat-ui safety badges, safety-verdict provenance, and per-session model override.
+
+### Release Notes
+
+- Version 1.5.1 was never published as a separate release; its fixes are included in 1.5.6.
 
 ## [1.5.0] - 2026-10-16
 
