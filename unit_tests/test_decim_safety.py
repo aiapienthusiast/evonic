@@ -328,8 +328,11 @@ def test_shadow_always_records_comparison_evidence():
     assert stored["final_level"] == result["level"]
     assert stored["agreement"] in {"exact", "decim_more_conservative", "decim_more_permissive"}
     assert stored["final_unsafe"] == 1
-    # Raw code must never be stored.
-    assert not any("shred -u /etc/hosts" in str(v) for v in stored.values())
+    # Command text is kept only as a bounded, redacted preview (policy: 1000 chars).
+    assert "shred -u /etc/hosts" in stored["detection_command"]
+    assert len(stored["detection_command"]) <= 1000
+    assert stored["command_fingerprint"]
+    assert stored["detection_type"]
 
 
 def test_enforce_records_only_when_enabled():

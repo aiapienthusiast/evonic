@@ -3,7 +3,12 @@
 This module owns the sanitized ``decim_safety_events`` rows and the single-row
 ``decim_safety_telemetry_state`` aggregate.  It is deliberately free of any
 provider transport details: callers hand it the already-normalized decision and
-the deterministic verdict, and it stores only non-reversible, bounded metadata.
+the deterministic verdict, and it stores only bounded metadata.
+
+Command text policy: ``detection_command`` keeps a whitespace-normalized preview
+capped at ``MAX_COMMAND_PREVIEW`` characters.  Credential-shaped fragments
+(passwords, tokens, API keys, bearer headers, private keys, URL credentials) are
+redacted before storage, and the preview expires together with its event.
 
 Recording policy (enforced by the caller in ``safety_pipeline``):
 
@@ -18,6 +23,7 @@ mode/configuration, rewrite execution history, or affect an in-flight decision.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
@@ -29,6 +35,65 @@ UNSAFE_LEVELS = frozenset({"warning", "requires_approval", "dangerous"})
 _SEVERITY = {"safe": 0, "warning": 1, "requires_approval": 2, "dangerous": 3}
 _MODEL_SEVERITY = {"allow": 0, "review": 2, "block": 3}
 _FINAL_TO_LEVEL = {"allow": "safe", "review": "requires_approval", "block": "dangerous"}
+
+# Command preview limits (approved: 1000 chars, secrets redacted).
+MAX_COMMAND_PREVIEW = 1000
+_TRUNCATION_MARK = "… [truncated]"
+_REDACTED = "[REDACTED]"
+
+_SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # password=..., token=..., api_key=..., secret=..., AWS_SECRET_ACCESS_KEY=..., GH_TOKEN=...
+    (re.compile(
+        r"(?i)\b(pass(?:word|wd|phrase)?|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|"
+        r"secret[_-]?access[_-]?key|client[_-]?secret|auth[_-]?token|gh[_-]?token|aws[_-]?secret[_-]?access[_-]?key)"
+        r"(\s*[:=]\s*)(\"[^\"]*\"|'[^']*'|`[^`]*`|[^\s;&|]+)"),
+     r"\1\2" + _REDACTED),
+    # --password value / --password=value / --token value
+    (re.compile(r"(?i)(--(?:pass(?:word|wd)?|token|api[-_]?key|secret)(?:=|\s+))(\"[^\"]*\"|'[^']*'|[^\s]+)"),
+     r"\1" + _REDACTED),
+    # mysql style -pSECRET (no space)
+    (re.compile(r"(?i)(\bmysql\b[^\n]*?\s-p)([^\s]+)"), r"\1" + _REDACTED),
+    # Authorization: Bearer xyz / Bearer xyz
+    (re.compile(r"(?i)\b(authorization\s*:\s*)?(bearer|basic|token)\s+[A-Za-z0-9._~+/=\-]{8,}"),
+     lambda m: (m.group(1) or "") + m.group(2) + " " + _REDACTED),
+    # PEM private key blocks
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S),
+     "[REDACTED PRIVATE KEY]"),
+    # scheme://user:pass@host
+    (re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://)([^\s:/@]+):([^\s@/]+)@"), r"\1\2:" + _REDACTED + "@"),
+    # JWTs
+    (re.compile(r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{4,}\b"), _REDACTED),
+]
+
+
+def command_preview(code: str | None, *, limit: int = MAX_COMMAND_PREVIEW) -> str:
+    """Return a bounded, credential-redacted preview of the executed code."""
+    if not code:
+        return ""
+    text = " ".join(str(code).split())
+    if not text:
+        return ""
+    if len(text) > limit:
+        keep = max(0, limit - len(_TRUNCATION_MARK))
+        text = text[:keep].rstrip() + _TRUNCATION_MARK
+    for pattern, repl in _SECRET_PATTERNS:
+        text = pattern.sub(repl, text)
+    return text
+
+
+def detection_label(
+    deterministic: dict[str, Any] | None,
+    model_decision: str | None,
+    *,
+    accepted: bool = True,
+) -> str:
+    """Classify what triggered the detection: rule categories, the model, or nothing."""
+    categories = sorted({str(c).strip() for c in ((deterministic or {}).get("blocked_patterns") or []) if str(c).strip()})
+    if categories:
+        return ",".join(categories)[:200]
+    if accepted and model_decision in {"review", "block"}:
+        return "model"
+    return "none"
 
 
 def _connect():
@@ -111,8 +176,10 @@ def record_comparison(
     """Insert one sanitized comparison event.  Returns the event id or None.
 
     ``model_decision`` is the normalized ``allow``/``review``/``block`` choice,
-    or ``None`` when the provider was unusable (a fallback).  Only fingerprints
-    and lengths of the command are stored, never its text.
+    or ``None`` when the provider was unusable (a fallback).  The command is
+    stored as a bounded, credential-redacted preview (see ``command_preview``)
+    alongside its fingerprint and length, and ``detection_type`` records which
+    rule categories fired (or ``model`` / ``none``).
     """
     try:
         from backend.tools.lib.decim_safety import POLICY_VERSION, _execution_boundary, fingerprint_code
@@ -164,7 +231,8 @@ def record_comparison(
                     _disposition_for(final_level),
                     fingerprint_code(code), len(code),
                     correlation_id, expires_at,
-                    "", ""
+                    detection_label(deterministic, model_decision, accepted=accepted),
+                    command_preview(code),
                 ),
             )
             conn.execute(
@@ -201,7 +269,7 @@ def _row_to_dict(row, columns: list[str]) -> dict[str, Any]:
 
 
 def get_event(event_id: str) -> dict[str, Any] | None:
-    """Fetch a single stored event (sanitized; never includes raw code)."""
+    """Fetch a single stored event (sanitized; command text is a redacted preview)."""
     try:
         with _connect() as conn:
             conn.row_factory = None

@@ -1888,3 +1888,196 @@ td.dm-events-empty { padding: 2rem 1rem !important; }
 #dmss-pager[hidden] { display: none; }
 .dm-pager-range { margin-right: 0.5rem; font-variant-numeric: tabular-nums; }
 #dmss-pager .hm-icon-btn:disabled { opacity: 0.35; cursor: not-allowed; background: transparent; }
+
+/* ---------- Activity detail modal (DMSS events) ----------
+ * Uses the shared .modal overlay (settings.css) for backdrop/centering and
+ * these .dm-modal* rules for the panel itself, so dark mode follows tokens. */
+.dm-modal { align-items: flex-start; }
+.dm-modal .dm-modal-panel {
+    display: flex;
+    flex-direction: column;
+    width: min(760px, 100%);
+    max-height: min(88vh, 900px);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
+    overflow: hidden;
+    text-align: left;
+}
+.dm-modal:focus { outline: none; }
+
+.dm-modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-card);
+}
+.dm-modal-heading { min-width: 0; }
+.dm-modal-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-heading);
+}
+.dm-modal-subtitle {
+    margin: 2px 0 0;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    word-break: break-word;
+}
+.dm-modal-close {
+    flex: none;
+    appearance: none;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+.dm-modal-close:hover {
+    color: var(--text-heading);
+    background: var(--bg-hover);
+    border-color: var(--border-color);
+}
+.dm-modal-close:focus-visible,
+.dm-modal-btn:focus-visible {
+    outline: 2px solid var(--sf-accent);
+    outline-offset: 1px;
+}
+
+.dm-modal-body {
+    padding: 16px 20px 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overscroll-behavior: contain;
+}
+
+.dm-modal-status,
+.dm-modal-error {
+    margin: 0;
+    font-size: 0.8rem;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+}
+.dm-modal-error {
+    color: var(--sf-err);
+    border-color: color-mix(in srgb, var(--sf-err) 40%, var(--border-color));
+    background: color-mix(in srgb, var(--sf-err) 10%, transparent);
+}
+
+.dm-modal-section {
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 12px 14px 14px;
+    background: var(--bg-card);
+}
+.dm-modal-section-title {
+    margin: 0 0 8px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.dm-command-text {
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-hover);
+    color: var(--text-heading);
+    font-family: var(--sf-mono);
+    font-size: 0.78rem;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 220px;
+    overflow-y: auto;
+}
+.dm-command-text:empty { display: none; }
+.dm-command-empty {
+    margin: 0;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    color: var(--text-muted);
+    font-style: italic;
+}
+.dm-command-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 8px;
+}
+.dm-modal-muted {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.dm-modal-btn {
+    flex: none;
+    appearance: none;
+    cursor: pointer;
+    border: 1px solid var(--border-color);
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 4px 10px;
+    border-radius: 7px;
+    transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+.dm-modal-btn:hover { color: var(--sf-accent-strong); border-color: var(--sf-accent); }
+.dm-modal-btn:disabled { opacity: 0.5; cursor: default; }
+
+.dm-detail-grid {
+    display: grid;
+    grid-template-columns: minmax(140px, 190px) 1fr;
+    gap: 7px 16px;
+    margin: 0;
+    font-size: 0.82rem;
+    align-items: baseline;
+}
+.dm-detail-grid dt {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+.dm-detail-grid dd {
+    margin: 0;
+    color: var(--text-heading);
+    overflow-wrap: anywhere;
+}
+.dm-detail-grid dd.mono {
+    font-family: var(--sf-mono);
+    font-size: 0.76rem;
+    color: var(--text-primary);
+}
+
+@media (max-width: 560px) {
+    .dm-modal .dm-modal-panel { max-height: 92vh; }
+    .dm-modal-header { padding: 14px 16px; }
+    .dm-modal-body { padding: 14px 16px 18px; }
+    .dm-detail-grid { grid-template-columns: 1fr; gap: 2px; }
+    .dm-detail-grid dt { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-top: 6px; }
+}
+
+/* Lock background scroll while the activity detail modal is open. */
+body.dm-modal-open { overflow: hidden; }

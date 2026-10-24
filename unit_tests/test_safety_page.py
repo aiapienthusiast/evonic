@@ -132,8 +132,8 @@ def test_dmss_tester_offers_ready_to_submit_samples():
         assert f'data-sample="{sample}"' in html
     assert html.count('class="sf-tester-sample"') >= 4
     # Bumped asset versions so the new wiring/CSS is not served stale.
-    assert "js/safety.js?v=12" in html
-    assert "css/safety.css?v=14" in html
+    assert "js/safety.js?v=14" in html
+    assert "css/safety.css?v=15" in html
 
 
 def test_dmss_provider_endpoint_has_a_connectivity_test_button():
@@ -179,3 +179,51 @@ def test_dmss_tester_samples_pass_payload_guardrails():
         packet = build_policy_packet(payload, tool_type, "sandboxed_docker", 12000)
         assert packet["requested_code"] == payload
         assert packet["tool_type"] == tool_type
+
+
+# ---------------------------------------------------------------------------
+# Activity detail modal (DMSS event drill-down)
+# ---------------------------------------------------------------------------
+
+def test_activity_modal_exposes_command_detection_and_decision_sections():
+    """The modal renders every field an operator needs to audit one decision."""
+    client = _client()
+    html = client.get("/system/safety").get_data(as_text=True)
+
+    # Accessible dialog shell defined in CSS (never a bare div over the overlay).
+    assert 'id="dmss-activity-modal"' in html
+    assert 'class="modal dm-modal"' in html
+    assert 'role="dialog"' in html
+    assert 'aria-modal="true"' in html
+
+    for section in ("dmss-sec-command", "dmss-sec-detection", "dmss-sec-decision", "dmss-sec-metadata"):
+        assert f'id="{section}"' in html
+
+    for field in (
+        "dmss-command-text", "dmss-command-copy", "dmss-command-empty",
+        "dmss-detection-type", "dmss-rule-categories", "dmss-rule-verdict", "dmss-rule-score",
+        "dmss-model-decision", "dmss-model-confidence", "dmss-model-latency",
+        "dmss-agreement", "dmss-fallback-reason",
+        "dmss-final-level", "dmss-decision-source", "dmss-disposition", "dmss-mode",
+        "dmss-event-id", "dmss-occurred-at", "dmss-tool-type", "dmss-boundary",
+        "dmss-policy-version", "dmss-provider", "dmss-model-id",
+        "dmss-correlation-id", "dmss-expires-at",
+    ):
+        assert f'id="{field}"' in html, field
+
+
+def test_activity_modal_styles_exist_and_use_theme_tokens():
+    """.dm-modal* must be defined, and must not hardcode light-only colors."""
+    from pathlib import Path
+
+    css = Path(__file__).resolve().parents[1] / "static" / "css" / "safety.css"
+    safety_css = css.read_text()
+    assert ".dm-modal .dm-modal-panel {" in safety_css
+    assert ".dm-detail-grid {" in safety_css
+    assert ".dm-command-text {" in safety_css
+    assert "background: var(--bg-card);" in safety_css
+    # The legacy broken selectors must be gone from the partial.
+    client = _client()
+    html = client.get("/system/safety").get_data(as_text=True)
+    assert ".detail-container {" not in html
+    assert "modal-detail-container" not in html

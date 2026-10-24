@@ -167,7 +167,7 @@ def api_decim_safety_events():
 
 @decim_safety_bp.route("/api/admin/decim-safety/events/<event_id>", methods=["GET"])
 def api_decim_safety_event(event_id):
-    """Fetch a single sanitized event; never returns raw command text."""
+    """Fetch a single sanitized event; command text is a redacted, bounded preview."""
     from backend.services import decim_safety_telemetry
 
     event = decim_safety_telemetry.get_event(event_id)

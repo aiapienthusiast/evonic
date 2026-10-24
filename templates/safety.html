@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=19">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/safety.css') }}?v=14">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/safety.css') }}?v=15">
 
 <div class="settings-console safety-console">
     <div class="settings-console-header">
@@ -549,5 +549,5 @@
 </div>
 
 {% include 'partials/dmss/activity-modal.html' %}
-<script src="{{ url_for('static', filename='js/safety.js') }}?v=12"></script>
+<script src="{{ url_for('static', filename='js/safety.js') }}?v=14"></script>
 {% endblock %}

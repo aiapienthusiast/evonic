@@ -876,16 +876,28 @@
                 // then reads the saved value, including any environment default).
                 body: JSON.stringify(value ? { endpoint: value } : {}),
             }).then(function (r) {
-                return r.json().then(function (d) { return { ok: r.ok, status: r.status, data: d }; });
+                // A non-JSON body (for example the HTML 404 returned when the API
+                // route is missing from the running build) must never be reported
+                // as a network failure: keep the status code so the UI can explain
+                // what actually happened.
+                return r.text().then(function (text) {
+                    var parsed = null;
+                    try { parsed = text ? JSON.parse(text) : null; } catch (err) { parsed = null; }
+                    return { ok: r.ok, status: r.status, data: parsed, json: parsed !== null };
+                });
             }).then(function (res) {
                 self._endpointTesting = false;
                 if (btn) { btn.disabled = false; btn.classList.remove("is-busy"); }
                 var d = res.data || {};
-                if (!res.ok) {
+                if (!res.ok || !res.json) {
                     if (res.status === 429) {
                         self._renderEndpointTest("err",
                             "Rate limit exceeded \u2014 try again in " + (d.retry_after || "a few") +
                             " s (max 10 tests/min).");
+                    } else if (!res.json) {
+                        self._renderEndpointTest("err",
+                            "Endpoint test API answered HTTP " + res.status +
+                            " without JSON \u2014 Evonic may still be running an older build. Restart the service and try again.");
                     } else {
                         self._renderEndpointTest("err",
                             d.error || ("Endpoint test failed (HTTP " + res.status + ")."));
@@ -905,7 +917,8 @@
                 console.error("DMSS endpoint test failed:", e);
                 self._endpointTesting = false;
                 if (btn) { btn.disabled = false; btn.classList.remove("is-busy"); }
-                self._renderEndpointTest("err", "Network error \u2014 could not reach the server.");
+                self._renderEndpointTest("err",
+                    "Network error \u2014 the Evonic API could not be reached, so the provider endpoint was never contacted.");
             });
         },
 
@@ -1239,13 +1252,8 @@
                 Array.prototype.forEach.call(body.querySelectorAll("tr[data-event-index]"), function (row) {
                     function open() {
                         var event = events[Number(row.dataset.eventIndex)];
-                        if (!event || typeof window.openDmssActivityModal !== "function") return;
-                        window.openDmssActivityModal(
-                            "Event ID: " + (event.id || "N/A"),
-                            event.occurred_at,
-                            event.detection_type,
-                            event.detection_command
-                        );
+                        if (!event || !window.safetyActivityModal) return;
+                        window.safetyActivityModal.open(event);
                     }
                     row.addEventListener("click", open);
                     row.addEventListener("keydown", function (ev) {
@@ -1484,11 +1492,235 @@
         },
     };
 
+    /* ==================== Activity detail modal ====================
+     * Renders a single DMSS event: the recorded command preview, how it was
+     * detected (deterministic rules + model) and what the final decision was.
+     * The row object from /events is rendered immediately, then replaced by
+     * GET /events/<id> once the authoritative record arrives. */
+
+    function setText(id, value) {
+        var el = qs("#" + id);
+        if (!el) return;
+        el.textContent = (value === null || value === undefined || value === "") ? "\u2014" : String(value);
+    }
+
+    function setHtml(id, html) {
+        var el = qs("#" + id);
+        if (el) el.innerHTML = html;
+    }
+
+    /* "privilege_escalation,sandbox_escape" -> readable chips. */
+    function categoryChips(value) {
+        if (!value) return '<span class="dm-none">\u2014</span>';
+        var chips = String(value).split(",").map(function (c) {
+            var v = c.trim();
+            return v ? '<span class="dm-tool">' + esc(humanize(v)) + "</span>" : "";
+        });
+        return chips.filter(Boolean).join(" ") || '<span class="dm-none">\u2014</span>';
+    }
+
+    function fallbackCopy(text) {
+        try {
+            var ta = document.createElement("textarea");
+            ta.value = text;
+            ta.setAttribute("readonly", "");
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            var ok = document.execCommand("copy");
+            document.body.removeChild(ta);
+            return ok;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    window.safetyActivityModal = {
+        _el: null,
+        _lastFocus: null,
+        _current: null,
+        _detailSeq: 0,
+
+        init() {
+            var modal = qs("#dmss-activity-modal");
+            if (!modal) return;
+            this._el = modal;
+            var close = qs("#dmss-modal-close");
+            if (close) close.addEventListener("click", function () { window.safetyActivityModal.close(); });
+            var copy = qs("#dmss-command-copy");
+            if (copy) copy.addEventListener("click", function () { window.safetyActivityModal.copyCommand(); });
+            modal.addEventListener("click", function (e) {
+                if (e.target === modal) window.safetyActivityModal.close();
+            });
+            document.addEventListener("keydown", function (e) {
+                var m = window.safetyActivityModal._el;
+                if (!m || !m.classList.contains("active")) return;
+                if (e.key === "Escape") {
+                    e.preventDefault();
+                    window.safetyActivityModal.close();
+                    return;
+                }
+                if (e.key === "Tab") {
+                    var f = m.querySelectorAll("button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex='-1'])");
+                    if (!f.length) return;
+                    var first = f[0], last = f[f.length - 1];
+                    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+                    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+                }
+            });
+        },
+
+        /* Legacy 4-argument calls still work; the row handler passes the event. */
+        open(record, timestamp, detectionType, detectionCommand) {
+            var modal = this._el || qs("#dmss-activity-modal");
+            if (!modal) return;
+            this._el = modal;
+            var event = (record && typeof record === "object")
+                ? record
+                : { id: null, occurred_at: timestamp, detection_type: detectionType, detection_command: detectionCommand };
+            this._current = event;
+            this._lastFocus = document.activeElement;
+            this._detailSeq += 1;
+            this.render(event);
+            this._setStatus("", false);
+            this._setError("", false);
+            modal.classList.add("active");
+            modal.setAttribute("aria-hidden", "false");
+            document.body.classList.add("dm-modal-open");
+            var close = qs("#dmss-modal-close");
+            if (close) close.focus();
+            if (event.id) this.loadDetail(event.id);
+        },
+
+        close() {
+            var modal = this._el || qs("#dmss-activity-modal");
+            if (!modal) return;
+            modal.classList.remove("active");
+            modal.setAttribute("aria-hidden", "true");
+            document.body.classList.remove("dm-modal-open");
+            this._detailSeq += 1;
+            if (this._lastFocus && typeof this._lastFocus.focus === "function") this._lastFocus.focus();
+            this._lastFocus = null;
+        },
+
+        loadDetail(id) {
+            var self = this;
+            var seq = ++this._detailSeq;
+            this._setStatus("Loading the full event record\u2026", true);
+            fetch("/api/admin/decim-safety/events/" + encodeURIComponent(id), {
+                headers: { "Accept": "application/json" },
+            }).then(function (r) {
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                return r.json();
+            }).then(function (d) {
+                if (seq !== self._detailSeq) return;
+                self._setStatus("", false);
+                if (d && d.id) { self._current = d; self.render(d); }
+            }).catch(function (err) {
+                if (seq !== self._detailSeq) return;
+                console.error("DMSS event detail failed:", err);
+                self._setStatus("", false);
+                self._setError("Could not load the stored event record \u2014 showing the values from the activity list.", true);
+            });
+        },
+
+        _setStatus(message, visible) {
+            var el = qs("#dmss-modal-status");
+            if (!el) return;
+            el.textContent = message || "";
+            el.hidden = !visible;
+        },
+
+        _setError(message, visible) {
+            var el = qs("#dmss-modal-error");
+            if (!el) return;
+            el.textContent = message || "";
+            el.hidden = !visible;
+        },
+
+        render(e) {
+            e = e || {};
+
+            /* --- Command --- */
+            var command = e.detection_command ? String(e.detection_command) : "";
+            var pre = qs("#dmss-command-text");
+            var empty = qs("#dmss-command-empty");
+            if (pre) { pre.textContent = command; pre.hidden = !command; }
+            if (empty) empty.hidden = !!command;
+            var copy = qs("#dmss-command-copy");
+            if (copy) copy.disabled = !command;
+
+            var meta = [];
+            if (e.command_fingerprint) meta.push("fingerprint " + e.command_fingerprint);
+            if (e.command_length != null) meta.push(fmtNum(e.command_length) + " chars executed");
+            var metaEl = qs("#dmss-command-meta");
+            if (metaEl) metaEl.textContent = meta.join(" \u00b7 ");
+
+            /* --- Detection --- */
+            var type = e.detection_type ? String(e.detection_type) : "";
+            if (!type) setText("dmss-detection-type", "Not recorded for this event");
+            else if (type === "model") setText("dmss-detection-type", "Model verdict only (no rule matched)");
+            else if (type === "none") setText("dmss-detection-type", "No detection triggered");
+            else setHtml("dmss-detection-type", categoryChips(type));
+
+            setHtml("dmss-rule-categories", categoryChips(e.deterministic_categories));
+            setHtml("dmss-rule-verdict", pill(e.deterministic_level));
+            setText("dmss-rule-score", e.deterministic_score == null ? "\u2014" : fmtNum(e.deterministic_score));
+            setHtml("dmss-model-decision", e.model_decision ? pill(e.model_decision)
+                : '<span class="dm-none">No model verdict</span>');
+            setText("dmss-model-confidence", e.model_confidence == null ? "\u2014" : fmtPct(e.model_confidence));
+            setText("dmss-model-latency", e.model_latency_ms == null ? "\u2014" : fmtNum(e.model_latency_ms) + " ms");
+            setHtml("dmss-agreement", e.agreement
+                ? '<span class="dm-agree dm-tone-' + toneOf(e.agreement) + '">' + esc(humanize(e.agreement)) + "</span>"
+                : '<span class="dm-none">\u2014</span>');
+            setText("dmss-fallback-reason", e.fallback_reason ? humanize(e.fallback_reason) : "\u2014");
+
+            /* --- Decision --- */
+            setHtml("dmss-final-level", pill(e.final_level));
+            setText("dmss-decision-source", humanize(e.decision_source));
+            setText("dmss-disposition", humanize(e.disposition));
+            setText("dmss-mode", humanize(e.mode));
+
+            /* --- Metadata --- */
+            setText("dmss-event-id", e.id || "Not recorded");
+            setText("dmss-occurred-at", e.occurred_at ? fmtWhen(e.occurred_at) + " \u00b7 " + e.occurred_at : "\u2014");
+            setText("dmss-tool-type", e.tool_type);
+            setText("dmss-boundary", humanize(e.execution_boundary));
+            setText("dmss-policy-version", e.policy_version);
+            setText("dmss-provider", e.provider_key);
+            setText("dmss-model-id", e.model_id);
+            setText("dmss-correlation-id", e.correlation_id || "\u2014");
+            setText("dmss-expires-at", e.expires_at ? fmtWhen(e.expires_at) + " \u00b7 " + e.expires_at : "\u2014");
+        },
+
+        copyCommand() {
+            var text = this._current && this._current.detection_command;
+            if (!text) return;
+            var btn = qs("#dmss-command-copy");
+            var done = function (ok) {
+                if (btn) {
+                    btn.textContent = ok ? "Copied" : "Copy failed";
+                    setTimeout(function () { btn.textContent = "Copy"; }, 1600);
+                }
+                if (ok) notify("Command copied", "success");
+            };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text)
+                    .then(function () { done(true); })
+                    .catch(function () { done(fallbackCopy(text)); });
+            } else {
+                done(fallbackCopy(text));
+            }
+        },
+    };
+
     /* ==================== Boot ==================== */
 
     function boot() {
         SafetyTabs.init();
         window.safetyTester.init();
+        window.safetyActivityModal.init();
     }
 
     if (document.readyState === "loading") {
