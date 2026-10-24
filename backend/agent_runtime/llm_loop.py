@@ -458,6 +458,21 @@ def _tool_survives_pruning(fn_name: str,
     )
 
 
+def pop_safety_provenance(tool_result) -> dict:
+    """Remove and return the out-of-band safety provenance of a tool result.
+
+    Tools annotate their result dict with ``_safety`` (who produced the verdict:
+    DMSS, the deterministic rule engine, a guard).  The provenance belongs in the
+    timeline/SSE payload only — never in the LLM context, the persisted content,
+    or the user-visible tool output — so it is stripped here, exactly once.
+    """
+    if isinstance(tool_result, dict):
+        info = tool_result.pop('_safety', None)
+        if isinstance(info, dict):
+            return info
+    return {}
+
+
 def run_tool_loop(agent: Dict[str, Any],
                   agent_context: dict,
                   messages: List[dict],
@@ -2610,6 +2625,13 @@ def run_tool_loop(agent: Dict[str, Any],
                                                      builtin_exec, real_exec,
                                                      agent_context)
 
+            # Safety provenance rides out-of-band on the tool result.  Strip it
+            # here, before the result is serialized for the LLM, logged, or shown
+            # to the user; only the timeline/SSE payload may carry it.
+            _safety_info = pop_safety_provenance(tool_result)
+            _approval_info = None
+            _decided_by = None
+
             # Human-in-the-loop approval for requires_approval safety results
             if isinstance(tool_result, dict) and tool_result.get('level') == 'requires_approval':
                 from backend.agent_runtime.approval import approval_registry
@@ -2640,7 +2662,7 @@ def run_tool_loop(agent: Dict[str, Any],
                     tool_call_id=_tc['id'],
                     tool_name=fn_name,
                     tool_args=args,
-                    safety_result=tool_result,
+                    safety_result={**tool_result, '_safety': _safety_info},
                 )
 
                 # Persist to DB so reconnecting SSE clients can retrieve
@@ -2670,6 +2692,7 @@ def run_tool_loop(agent: Dict[str, Any],
                     'approval_info': tool_result.get('approval_info', {}),
                     'reasons': tool_result.get('reasons', []),
                     'score': tool_result.get('score'),
+                    'safety': _safety_info or None,
                     'source_agent_name': agent.get('name', agent_id),
                 })
 
@@ -2691,6 +2714,7 @@ def run_tool_loop(agent: Dict[str, Any],
                         'approval_info': tool_result.get('approval_info', {}),
                         'reasons': tool_result.get('reasons', []),
                         'score': tool_result.get('score'),
+                        'safety': _safety_info or None,
                         'source_agent_id': agent_id,
                         'source_agent_name': agent.get('name', agent_id),
                     }
@@ -2730,13 +2754,22 @@ def run_tool_loop(agent: Dict[str, Any],
                 deadline = time.time() + APPROVAL_TIMEOUT
                 while not pending.decision_event.wait(timeout=1.0):
                     if stop_event.is_set():
-                        approval_registry.resolve(pending.approval_id, 'reject')
+                        approval_registry.resolve(pending.approval_id, 'reject',
+                                                  resolved_by='system:stopped')
                         break
                     if time.time() >= deadline:
                         break
 
                 timed_out = pending.decision is None
                 decision = pending.decision or 'reject'
+                # Who actually decided: a human channel, another agent, the stop
+                # signal, or this loop's timeout.  Never inferred from 'decision'.
+                _decided_by = pending.resolved_by or ('timeout' if timed_out else 'unknown')
+                _approval_info = {
+                    'approval_id': pending.approval_id,
+                    'decision': decision,
+                    'decided_by': _decided_by,
+                }
 
                 # Emit approval_resolved BEFORE re-executing the approved tool so the
                 # UI (inline chat card + global modal) collapses the moment the decision
@@ -2749,6 +2782,8 @@ def run_tool_loop(agent: Dict[str, Any],
                     'approval_id': pending.approval_id,
                     'decision': decision,
                     'timed_out': timed_out,
+                    'decided_by': _decided_by,
+                    'safety': _safety_info or None,
                 })
                 # Fan-out to all escalation targets (web + Telegram), deduplicating by (session, channel)
                 for _esc_sid, _esc_uid, _esc_cid in _escalation_targets:
@@ -2761,6 +2796,8 @@ def run_tool_loop(agent: Dict[str, Any],
                         'approval_id': pending.approval_id,
                         'decision': decision,
                         'timed_out': timed_out,
+                        'decided_by': _decided_by,
+                        'safety': _safety_info or None,
                     })
                 approval_registry.remove(pending.approval_id)
                 try:
@@ -2784,6 +2821,12 @@ def run_tool_loop(agent: Dict[str, Any],
                         'level': 'rejected',
                         'original_reasons': pending.safety_result.get('reasons', []),
                     }
+
+                # The post-approval re-execution reports the bypassed ('safe')
+                # verdict; the timeline must keep the original verdict that
+                # triggered the approval request instead.
+                if isinstance(tool_result, dict):
+                    tool_result.pop('_safety', None)
 
             # Track lazy-skill state changes and publish their snapshot only after
             # tool_executed, preserving chat-stream ordering for the browser.
@@ -2984,13 +3027,22 @@ def run_tool_loop(agent: Dict[str, Any],
                                 'tasks:auto_transition', [activated['task_id']])
                     _successful_mutation = True
 
-            timeline.append({"type": "tool_result", "tool": fn_name, "result": result_dict, "error": has_error})
+            _timeline_extra = {}
+            if _safety_info:
+                _timeline_extra['safety'] = _safety_info
+            if _approval_info:
+                _timeline_extra['approval'] = _approval_info
+
+            timeline.append({"type": "tool_result", "tool": fn_name, "result": result_dict,
+                             "error": has_error, **_timeline_extra})
 
             event_stream.emit('tool_executed', {
                 'agent_id': agent_id, 'session_id': session_id,
                 'external_user_id': external_user_id, 'channel_id': channel_id,
                 'tool_name': fn_name, 'tool_args': args,
                 'tool_result': result_dict, 'has_error': has_error,
+                'safety': _safety_info or None,
+                'approval': _approval_info,
             })
 
             from backend.plugin_manager import run_tool_result_gates
@@ -3000,10 +3052,12 @@ def run_tool_loop(agent: Dict[str, Any],
                 # Preserve tool-call/result pairing in durable history, but never
                 # expose the tool result to another LLM call or user-visible reply.
                 db.add_chat_message(session_id, 'tool', result_str,
-                                    tool_call_id=_tc['id'], agent_id=db_agent_id)
+                                    tool_call_id=_tc['id'], agent_id=db_agent_id,
+                                    metadata=dict(_timeline_extra) or None)
                 chatlog.append({'type': 'tool_output', 'session_id': session_id,
                                 'content': result_str, 'tool_call_id': _tc['id'],
-                                'error': has_error, 'function': fn_name})
+                                'error': has_error, 'function': fn_name,
+                                **_timeline_extra})
                 tool_trace.append({"tool": fn_name, "args": args, "result": result_dict})
                 return _finalize_gate_response(
                     str(_result_decision.get('response') or ''), 'tool_result')
@@ -3040,11 +3094,14 @@ def run_tool_loop(agent: Dict[str, Any],
 
             # --- Split-path output ---
             # DB gets FULL result_str (for detail view and future re-read)
-            db.add_chat_message(session_id, 'tool', result_str, tool_call_id=_tc['id'], agent_id=db_agent_id)
-            # Chatlog gets FULL content for tool_output display
+            db.add_chat_message(session_id, 'tool', result_str, tool_call_id=_tc['id'],
+                                agent_id=db_agent_id,
+                                metadata=dict(_timeline_extra) or None)
+            # Chatlog gets FULL content for tool_output display, plus the safety
+            # provenance so the timeline badge survives a reload/replay.
             chatlog.append({'type': 'tool_output', 'session_id': session_id,
                             'content': result_str, 'tool_call_id': _tc['id'], 'error': has_error,
-                            'function': fn_name})
+                            'function': fn_name, **_timeline_extra})
             # LLM messages get COMPRESSED content (token savings)
             messages.append({
                 "role": "tool",

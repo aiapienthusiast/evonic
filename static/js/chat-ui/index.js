@@ -245,7 +245,9 @@ export class ChatUI {
                 _ensureTurn();
                 let result;
                 try { result = JSON.parse(entry.content); } catch(e) { result = { data: entry.content }; }
-                thinkingTurn.ingest({ event: 'tool_executed', data: { tool: entry.function, result, error: !!entry.error }, seq: 0 });
+                thinkingTurn.ingest({ event: 'tool_executed', data: { tool: entry.function, result, error: !!entry.error,
+                                                                       safety: entry.safety || null,
+                                                                       approval: entry.approval || null }, seq: 0 });
                 // switch_workplace: end the bubble here and draw the divider, later steps start a new one.
                 if (entry.function === 'switch_workplace' && !entry.error && result && result.workplace_switch) {
                     if (thinkingTurn) { thinkingTurn.ingest({ event: 'done', data: {}, seq: 0 }); thinkingTurn = null; }

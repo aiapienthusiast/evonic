@@ -23,6 +23,7 @@
 import { log, assert } from './debug.js';
 import { buildSavedArtifactsBlock } from './artifacts.js';
 import { uiIcon } from './icons.js';
+import { applyBadge, describeBadge } from './badges.js';
 
 const TERMINAL_PHASES = new Set(['final', 'done', 'aborted']);
 
@@ -449,6 +450,10 @@ export class Turn {
                 : '<span class="inline-flex" style="color:#22c55e">' + uiIcon('check', 14) + '</span>');
         }
 
+        // Who decided this execution: DMSS, the rule engine, you, another agent,
+        // or a timeout.  Persisted with the tool output, so replay keeps it.
+        this._applySafetyBadge($target, data.safety, data.approval);
+
         const $detail = $target.find('.tl-detail');
         if ($detail.length) {
             const resultLabelColor = data.error ? 'text-red-400' : 'text-green-400';
@@ -631,6 +636,23 @@ export class Turn {
             $('<div class="text-xs text-gray-600 dark:text-gray-300 mb-2">').text(description)
         );
 
+        // What triggered the gate: engine verdict + flagged categories, so the
+        // decision can be evaluated after the fact.
+        if (data.safety && data.safety.source) {
+            const prov = describeBadge(data.safety, null);
+            const bits = [];
+            if (prov) bits.push('Verdict: ' + prov.label);
+            if (data.safety.mode) bits.push('mode ' + data.safety.mode);
+            if (data.safety.confidence != null) bits.push('confidence ' + data.safety.confidence);
+            if (data.safety.event_id) bits.push('event ' + String(data.safety.event_id).slice(0, 12));
+            $details.append($('<div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">')
+                .attr('title', prov ? prov.title : '').text(bits.join(' · ')));
+            if (data.safety.blocked_patterns && data.safety.blocked_patterns.length) {
+                $details.append($('<div class="text-[11px] text-gray-500 dark:text-gray-400 mb-2">')
+                    .text('Flagged: ' + data.safety.blocked_patterns.join(', ')));
+            }
+        }
+
         if (reasons.length) {
             const $ul = $('<ul class="text-xs text-gray-600 dark:text-gray-300 list-disc list-inside mb-2 space-y-0.5">');
             reasons.forEach(r => $ul.append($('<li>').text(r)));
@@ -667,6 +689,17 @@ export class Turn {
         this._smartScroll();
     }
 
+    _applySafetyBadge($entry, safety, approval) {
+        if (!$entry || !$entry.length) return;
+        if (!safety && !(approval && approval.decision)) return;
+        try {
+            applyBadge($entry, safety, approval);
+        } catch (e) {
+            // A badge must never break the timeline.
+            log.warn('safety badge failed', e);
+        }
+    }
+
     async _submitApproval(approvalId, decision, $card) {
         $card.find('.approval-actions button').prop('disabled', true);
         try {
@@ -676,7 +709,7 @@ export class Turn {
                 body: JSON.stringify({approval_id: approvalId, decision}),
             });
             if (res.ok) {
-                this._markApprovalResolved($card, decision, false);
+                this._markApprovalResolved($card, decision, false, 'user:web');
             } else {
                 const body = await res.json().catch(() => ({}));
                 $card.find('.approval-status').text(body.error || 'Failed.').removeClass('hidden').addClass('text-red-600');
@@ -690,19 +723,25 @@ export class Turn {
 
     _resolveApprovalCard(data) {
         const $card = this.$timeline.find(`[data-approval-id="${CSS.escape(data.approval_id)}"]`);
-        if ($card.length) this._markApprovalResolved($card, data.decision, data.timed_out);
+        if ($card.length) {
+            this._markApprovalResolved($card, data.decision, data.timed_out, data.decided_by);
+        }
     }
 
-    _markApprovalResolved($card, decision, timedOut) {
+    _markApprovalResolved($card, decision, timedOut, decidedBy) {
         $card.find('.approval-actions').addClass('hidden');
+        const actor = decidedBy || (timedOut ? 'timeout' : 'user:web');
+        const badge = describeBadge(null, { decision: decision, decided_by: actor });
+        const label = (badge && badge.label) || (decision === 'approve' ? 'You approved' : 'You declined');
         let statusText, statusClass, iconHtml;
         if (timedOut) {
-            statusText = 'Timed out — auto-rejected.'; statusClass = 'text-gray-500'; iconHtml = '&#x23F1; Timed out';
+            statusText = label + ' — auto-rejected.'; statusClass = 'text-gray-500'; iconHtml = '&#x23F1; ' + label;
         } else if (decision === 'approve') {
-            statusText = 'Approved — executing...'; statusClass = 'text-green-600'; iconHtml = uiIcon('check', 14) + ' Approved';
+            statusText = label + ' — executing...'; statusClass = 'text-green-600'; iconHtml = uiIcon('check', 14) + ' ' + label;
         } else {
-            statusText = 'Rejected.'; statusClass = 'text-red-500'; iconHtml = uiIcon('x', 14) + ' Rejected';
+            statusText = label + '.'; statusClass = 'text-red-500'; iconHtml = uiIcon('x', 14) + ' ' + label;
         }
+        $card.attr('data-decided-by', actor);
         $card.find('.approval-status').text(statusText).removeClass('hidden').addClass(statusClass);
         $card.find('.approval-summary-icon').html(iconHtml);
         $card.find('.approval-summary').removeClass('hidden').addClass('flex');

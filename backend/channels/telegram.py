@@ -721,7 +721,7 @@ class TelegramChannel(BaseChannel):
             # event handler (fired by run_tool_loop) always sees an empty dict and
             # skips its redundant edit — prevents race between two edit_message_text calls.
             _pending_approval_msgs.pop(approval_id, None)
-            success = approval_registry.resolve(approval_id, decision)
+            success = approval_registry.resolve(approval_id, decision, resolved_by='user:telegram')
             label = 'Approved' if decision == 'approve' else 'Rejected'
             if success:
                 await query.edit_message_text(f"{label} by user.")

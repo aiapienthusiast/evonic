@@ -296,7 +296,9 @@ export class PollingAdapter {
         if (entry.type === 'tool_output') {
             let result;
             try { result = JSON.parse(entry.content); } catch (e) { result = { data: entry.content }; }
-            return { event: 'tool_executed', data: { tool: entry.function, result, error: !!entry.error }, seq: 0 };
+            return { event: 'tool_executed', data: { tool: entry.function, result, error: !!entry.error,
+                                                      safety: entry.safety || null,
+                                                      approval: entry.approval || null }, seq: 0 };
         }
         if (entry.type === 'intermediate') {
             return { event: 'response_chunk', data: { content: entry.content, is_final: false }, seq: 0 };

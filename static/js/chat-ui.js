@@ -612,6 +612,126 @@ function uiIcon(name, size) {
         'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (_UI_ICONS[name] || '') + '</svg>';
 }
 
+// ── badges.js ───────────────────────────────────────────────────
+
+const TONE_CLASS = {
+    green: 'text-green-700 border-green-300 bg-green-50 dark:text-green-300 dark:border-green-800 dark:bg-green-950/40',
+    red: 'text-red-700 border-red-300 bg-red-50 dark:text-red-300 dark:border-red-800 dark:bg-red-950/40',
+    amber: 'text-orange-700 border-orange-300 bg-orange-50 dark:text-orange-300 dark:border-orange-800 dark:bg-orange-950/40',
+    neutral: 'text-gray-600 border-gray-300 bg-gray-50 dark:text-gray-300 dark:border-gray-700 dark:bg-gray-800/60',
+};
+
+const TONE_ICON = { green: 'check', red: 'x', amber: 'alert', neutral: 'lock' };
+
+const SOURCE_LABEL = { dmss: 'DMSS', rules: 'Rules', guard: 'Guard' };
+
+function _decidedByLabel(approval) {
+    const by = String(approval.decided_by || '');
+    if (by.indexOf('agent:') === 0) return 'agent ' + by.slice(6);
+    if (by === 'timeout') return 'Timeout';
+    if (by === 'system:stopped') return 'Stopped';
+    if (by === 'policy:api') return 'API policy';
+    if (by.indexOf('user:') === 0) return 'You';
+    return 'You';
+}
+
+function approvalLabel(approval) {
+    if (!approval || !approval.decision) return null;
+    const by = String(approval.decided_by || '');
+    const who = _decidedByLabel(approval);
+    if (approval.decision === 'approve') {
+        if (by === 'timeout') return 'Timed out';
+        return who === 'You' ? 'You approved' : 'Approved by ' + who;
+    }
+    if (by === 'timeout') return 'Timed out — rejected';
+    if (by === 'policy:api') return 'Rejected (API policy)';
+    if (by === 'system:stopped') return 'Stopped — rejected';
+    return who === 'You' ? 'You declined' : 'Declined by ' + who;
+}
+
+function _safetyLabel(safety) {
+    const source = SOURCE_LABEL[safety.source] || 'Rules';
+    const decision = safety.decision || safety.level || 'allow';
+    const word = decision === 'block' ? 'block'
+        : decision === 'review' ? 'review'
+        : 'allow';
+    return source + ' ' + word;
+}
+
+function _toneFor(decision, source) {
+    if (decision === 'block') return 'red';
+    if (decision === 'review') return 'amber';
+    // Only a model-backed verdict earns a positive tone; a plain rule pass is neutral.
+    return source === 'dmss' ? 'green' : 'neutral';
+}
+
+function _safetyTooltip(safety) {
+    const parts = [];
+    parts.push((SOURCE_LABEL[safety.source] || 'Rules') + ' verdict');
+    if (safety.mode) parts.push('mode ' + safety.mode);
+    if (safety.model_decision) parts.push('model ' + safety.model_decision);
+    if (safety.confidence != null) parts.push('confidence ' + safety.confidence);
+    if (safety.event_id) parts.push('event ' + String(safety.event_id).slice(0, 12));
+    if (safety.blocked_patterns && safety.blocked_patterns.length) {
+        parts.push('flagged: ' + safety.blocked_patterns.join(', '));
+    }
+    if (safety.reasons && safety.reasons.length) {
+        parts.push(safety.reasons[0]);
+    }
+    return parts.join(' · ');
+}
+
+function describeBadge(safety, approval) {
+    if (approval && approval.decision) {
+        const label = approvalLabel(approval);
+        const tone = approval.decision === 'approve' ? 'green' : 'red';
+        const title = 'Decision: ' + label +
+            (approval.decided_by ? ' (' + approval.decided_by + ')' : '') +
+            (safety ? ' · ' + _safetyTooltip(safety) : '');
+        return { label: label, tone: tone, title: title, icon: TONE_ICON[tone] };
+    }
+    if (!safety || !safety.source) return null;
+    const decision = safety.decision || 'allow';
+    // A plain rule pass with no model involvement is the boring default: no
+    // badge, so the timeline stays quiet unless something actually decided.
+    const hasModelContext = !!(safety.mode && safety.mode !== null) ||
+        (safety.blocked_patterns && safety.blocked_patterns.length > 0);
+    if (decision === 'allow' && safety.source !== 'dmss' && !hasModelContext) return null;
+    const tone = _toneFor(decision, safety.source);
+    return {
+        label: _safetyLabel(safety),
+        tone: tone,
+        title: _safetyTooltip(safety),
+        icon: tone === 'neutral' && decision === 'allow' ? 'check' : TONE_ICON[tone],
+    };
+}
+
+function buildBadge(safety, approval) {
+    const desc = describeBadge(safety, approval);
+    if (!desc) return null;
+    const toneClass = TONE_CLASS[desc.tone] || TONE_CLASS.neutral;
+    const $label = $('<span>').text(desc.label);
+    return $('<span class="safety-badge inline-flex items-center gap-1 ml-auto pl-2 text-[10px] font-semibold px-1.5 py-0.5 rounded border whitespace-nowrap">')
+        .addClass(toneClass)
+        .attr('title', desc.title)
+        .attr('data-safety-tone', desc.tone)
+        .append(uiIcon(desc.icon, 11), $label);
+}
+
+function applyBadge($entry, safety, approval) {
+    if (!$entry || !$entry.length) return;
+    const $badge = buildBadge(safety, approval);
+    if (!$badge) return;
+    const key = $badge.attr('title') + '|' + $badge.text();
+    if ($entry.find('.safety-badge').attr('data-safety-key') === key) return;
+    $entry.find('.safety-badge').remove();
+    $badge.attr('data-safety-key', key);
+    const $status = $entry.find('.tl-status').first().parent();
+    const $header = ($status && $status.length) ? $status : $entry.children().first();
+    if ($header && $header.length) $header.append($badge);
+    else $entry.append($badge);
+}
+
 // ── renderers.js ────────────────────────────────────────────────
 
 // ── Sanitizer ─────────────────────────────────────────────────────────────────
@@ -712,9 +832,8 @@ function normalizeTimestamp(timestamp) {
 // implementation; without that script math is simply left untouched.
 function renderMath(html) {
     if (!html) return html || '';
-    if (window.EvMarkdownMath && typeof window.EvMarkdownMath.render === 'function') {
-        return window.EvMarkdownMath.render(html);
-    }
+    const math = typeof window !== 'undefined' ? window.EvMarkdownMath : null;
+    if (math && typeof math.render === 'function') return math.render(html);
     return html;
 }
 
@@ -2618,7 +2737,9 @@ class PollingAdapter {
         if (entry.type === 'tool_output') {
             let result;
             try { result = JSON.parse(entry.content); } catch (e) { result = { data: entry.content }; }
-            return { event: 'tool_executed', data: { tool: entry.function, result, error: !!entry.error }, seq: 0 };
+            return { event: 'tool_executed', data: { tool: entry.function, result, error: !!entry.error,
+                                                      safety: entry.safety || null,
+                                                      approval: entry.approval || null }, seq: 0 };
         }
         if (entry.type === 'intermediate') {
             return { event: 'response_chunk', data: { content: entry.content, is_final: false }, seq: 0 };
@@ -3069,6 +3190,10 @@ class Turn {
                 : '<span class="inline-flex" style="color:#22c55e">' + uiIcon('check', 14) + '</span>');
         }
 
+        // Who decided this execution: DMSS, the rule engine, you, another agent,
+        // or a timeout.  Persisted with the tool output, so replay keeps it.
+        this._applySafetyBadge($target, data.safety, data.approval);
+
         const $detail = $target.find('.tl-detail');
         if ($detail.length) {
             const resultLabelColor = data.error ? 'text-red-400' : 'text-green-400';
@@ -3251,6 +3376,23 @@ class Turn {
             $('<div class="text-xs text-gray-600 dark:text-gray-300 mb-2">').text(description)
         );
 
+        // What triggered the gate: engine verdict + flagged categories, so the
+        // decision can be evaluated after the fact.
+        if (data.safety && data.safety.source) {
+            const prov = describeBadge(data.safety, null);
+            const bits = [];
+            if (prov) bits.push('Verdict: ' + prov.label);
+            if (data.safety.mode) bits.push('mode ' + data.safety.mode);
+            if (data.safety.confidence != null) bits.push('confidence ' + data.safety.confidence);
+            if (data.safety.event_id) bits.push('event ' + String(data.safety.event_id).slice(0, 12));
+            $details.append($('<div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">')
+                .attr('title', prov ? prov.title : '').text(bits.join(' · ')));
+            if (data.safety.blocked_patterns && data.safety.blocked_patterns.length) {
+                $details.append($('<div class="text-[11px] text-gray-500 dark:text-gray-400 mb-2">')
+                    .text('Flagged: ' + data.safety.blocked_patterns.join(', ')));
+            }
+        }
+
         if (reasons.length) {
             const $ul = $('<ul class="text-xs text-gray-600 dark:text-gray-300 list-disc list-inside mb-2 space-y-0.5">');
             reasons.forEach(r => $ul.append($('<li>').text(r)));
@@ -3287,6 +3429,17 @@ class Turn {
         this._smartScroll();
     }
 
+    _applySafetyBadge($entry, safety, approval) {
+        if (!$entry || !$entry.length) return;
+        if (!safety && !(approval && approval.decision)) return;
+        try {
+            applyBadge($entry, safety, approval);
+        } catch (e) {
+            // A badge must never break the timeline.
+            log.warn('safety badge failed', e);
+        }
+    }
+
     async _submitApproval(approvalId, decision, $card) {
         $card.find('.approval-actions button').prop('disabled', true);
         try {
@@ -3296,7 +3449,7 @@ class Turn {
                 body: JSON.stringify({approval_id: approvalId, decision}),
             });
             if (res.ok) {
-                this._markApprovalResolved($card, decision, false);
+                this._markApprovalResolved($card, decision, false, 'user:web');
             } else {
                 const body = await res.json().catch(() => ({}));
                 $card.find('.approval-status').text(body.error || 'Failed.').removeClass('hidden').addClass('text-red-600');
@@ -3310,19 +3463,25 @@ class Turn {
 
     _resolveApprovalCard(data) {
         const $card = this.$timeline.find(`[data-approval-id="${CSS.escape(data.approval_id)}"]`);
-        if ($card.length) this._markApprovalResolved($card, data.decision, data.timed_out);
+        if ($card.length) {
+            this._markApprovalResolved($card, data.decision, data.timed_out, data.decided_by);
+        }
     }
 
-    _markApprovalResolved($card, decision, timedOut) {
+    _markApprovalResolved($card, decision, timedOut, decidedBy) {
         $card.find('.approval-actions').addClass('hidden');
+        const actor = decidedBy || (timedOut ? 'timeout' : 'user:web');
+        const badge = describeBadge(null, { decision: decision, decided_by: actor });
+        const label = (badge && badge.label) || (decision === 'approve' ? 'You approved' : 'You declined');
         let statusText, statusClass, iconHtml;
         if (timedOut) {
-            statusText = 'Timed out — auto-rejected.'; statusClass = 'text-gray-500'; iconHtml = '&#x23F1; Timed out';
+            statusText = label + ' — auto-rejected.'; statusClass = 'text-gray-500'; iconHtml = '&#x23F1; ' + label;
         } else if (decision === 'approve') {
-            statusText = 'Approved — executing...'; statusClass = 'text-green-600'; iconHtml = uiIcon('check', 14) + ' Approved';
+            statusText = label + ' — executing...'; statusClass = 'text-green-600'; iconHtml = uiIcon('check', 14) + ' ' + label;
         } else {
-            statusText = 'Rejected.'; statusClass = 'text-red-500'; iconHtml = uiIcon('x', 14) + ' Rejected';
+            statusText = label + '.'; statusClass = 'text-red-500'; iconHtml = uiIcon('x', 14) + ' ' + label;
         }
+        $card.attr('data-decided-by', actor);
         $card.find('.approval-status').text(statusText).removeClass('hidden').addClass(statusClass);
         $card.find('.approval-summary-icon').html(iconHtml);
         $card.find('.approval-summary').removeClass('hidden').addClass('flex');
@@ -3579,7 +3738,9 @@ class ChatUI {
                 _ensureTurn();
                 let result;
                 try { result = JSON.parse(entry.content); } catch(e) { result = { data: entry.content }; }
-                thinkingTurn.ingest({ event: 'tool_executed', data: { tool: entry.function, result, error: !!entry.error }, seq: 0 });
+                thinkingTurn.ingest({ event: 'tool_executed', data: { tool: entry.function, result, error: !!entry.error,
+                                                                       safety: entry.safety || null,
+                                                                       approval: entry.approval || null }, seq: 0 });
                 // switch_workplace: end the bubble here and draw the divider, later steps start a new one.
                 if (entry.function === 'switch_workplace' && !entry.error && result && result.workplace_switch) {
                     if (thinkingTurn) { thinkingTurn.ingest({ event: 'done', data: {}, seq: 0 }); thinkingTurn = null; }

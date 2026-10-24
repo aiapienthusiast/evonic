@@ -742,7 +742,9 @@ def _exec_resolve_agent_approval(args: dict, agent_context: dict) -> dict:
         _logger.warning("Approval '%s' already resolved as '%s'.", approval_id, pa.decision)
         return {'error': f'Approval already resolved: {pa.decision}.'}
 
-    resolved = approval_registry.resolve(approval_id, decision)
+    _by = agent_context.get('id') or agent_context.get('agent_id') or 'agent'
+    resolved = approval_registry.resolve(approval_id, decision,
+                                         resolved_by=f'agent:{_by}')
     if not resolved:
         _logger.warning("Approval '%s' could not be resolved (just expired).", approval_id)
         return {'error': 'Could not resolve approval (may have just expired).'}

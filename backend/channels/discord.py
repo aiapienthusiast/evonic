@@ -779,7 +779,7 @@ class DiscordChannel(BaseChannel):
             async def approve(self, interaction, button):
                 from backend.agent_runtime.approval import approval_registry
                 pending.pop(approval_id, None)
-                ok = approval_registry.resolve(approval_id, 'approve')
+                ok = approval_registry.resolve(approval_id, 'approve', resolved_by='user:discord')
                 msg = 'Approved by user.' if ok else 'This approval has already been resolved or expired.'
                 await interaction.response.edit_message(content=msg, view=None)
 
@@ -787,7 +787,7 @@ class DiscordChannel(BaseChannel):
             async def reject(self, interaction, button):
                 from backend.agent_runtime.approval import approval_registry
                 pending.pop(approval_id, None)
-                ok = approval_registry.resolve(approval_id, 'reject')
+                ok = approval_registry.resolve(approval_id, 'reject', resolved_by='user:discord')
                 msg = 'Rejected by user.' if ok else 'This approval has already been resolved or expired.'
                 await interaction.response.edit_message(content=msg, view=None)
 

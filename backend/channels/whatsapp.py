@@ -903,7 +903,7 @@ class WhatsAppChannel(BaseChannel):
             parts = button_id.split(':', 1)
             if len(parts) == 2 and parts[0] in ('approve', 'reject'):
                 from backend.agent_runtime.approval import approval_registry
-                approval_registry.resolve(parts[1], parts[0])
+                approval_registry.resolve(parts[1], parts[0], resolved_by='user:whatsapp')
             return
 
         sender = payload.get('from', '')

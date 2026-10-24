@@ -2652,7 +2652,7 @@ def api_chat_approve(agent_id):
     if pending.agent_id != agent_id:
         return jsonify({'error': 'Approval does not belong to this agent'}), 403
 
-    success = approval_registry.resolve(approval_id, decision)
+    success = approval_registry.resolve(approval_id, decision, resolved_by='user:web')
     if not success:
         return jsonify({'error': 'Approval already resolved'}), 409
 

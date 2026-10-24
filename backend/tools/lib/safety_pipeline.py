@@ -446,6 +446,59 @@ class SafetyPipeline:
             return None
 
 
+_LEVEL_TO_DECISION = {
+    "safe": "allow",
+    "warning": "allow",
+    "requires_approval": "review",
+    "dangerous": "block",
+}
+
+
+def verdict_provenance(safety: dict | None) -> dict:
+    """Return a compact, UI-safe description of who produced a safety verdict.
+
+    Used by the chat timeline to show whether an execution was cleared or
+    stopped by Decim Safety (DMSS), by the deterministic rule engine, or by a
+    human approval.  Deliberately excludes the provider endpoint, provider key,
+    model product name and any credential — the same disclosure policy as
+    ``routes/decim_safety.py``.
+
+    Shape::
+
+        {source, mode, level, decision, model_decision, confidence,
+         event_id, blocked_patterns[:6], reasons[:4]}
+    """
+    if not isinstance(safety, dict):
+        return {}
+    meta = safety.get("decim_safety") or {}
+    decision_source = meta.get("decision_source") or safety.get("decision_source")
+    if decision_source == "decim":
+        source, mode = "dmss", "enforce"
+    elif decision_source == "deterministic_shadow":
+        source, mode = "rules", "shadow"
+    elif decision_source == "deterministic_fallback":
+        source, mode = "rules", "fallback"
+    else:
+        source, mode = "rules", None
+    level = safety.get("level") or "safe"
+    confidence = meta.get("model_confidence")
+    try:
+        confidence = round(float(confidence), 3) if confidence is not None else None
+    except (TypeError, ValueError):
+        confidence = None
+    return {
+        "source": source,
+        "mode": mode,
+        "level": level,
+        "decision": _LEVEL_TO_DECISION.get(level, "allow"),
+        "model_decision": meta.get("model_decision"),
+        "confidence": confidence,
+        "event_id": meta.get("event_id"),
+        "blocked_patterns": [str(p) for p in (safety.get("blocked_patterns") or [])[:6]],
+        "reasons": [str(r) for r in (safety.get("reasons") or [])[:4]],
+    }
+
+
 def _build_default_pipeline() -> SafetyPipeline:
     """Construct the default pipeline with system + custom rule checkers."""
     return SafetyPipeline()

@@ -16,11 +16,14 @@ from backend.tools.lib.agent_env import build_agent_env
 from backend.tools.lib.exec_backend import registry, validate_env_keys
 
 try:
-    from backend.tools.lib.safety_pipeline import get_safety_pipeline, should_skip_safety
+    from backend.tools.lib.safety_pipeline import (
+        get_safety_pipeline, should_skip_safety, verdict_provenance,
+    )
 except ImportError:
     logging.getLogger(__name__).warning("safety_pipeline unavailable — safety checks disabled for bash tool")
     get_safety_pipeline = None
     should_skip_safety = lambda agent: True
+    verdict_provenance = lambda safety: {}
 
 try:
     from backend.tools.lib.heuristic_safety import check_root_filesystem_scan
@@ -156,6 +159,13 @@ def execute(agent: dict, args: dict) -> dict:
                 'reasons': _rfs['reasons'],
                 'blocked_patterns': _rfs['blocked_patterns'],
                 'approval_info': _rfs['approval_info'],
+                '_safety': {
+                    'source': 'guard', 'mode': 'root_fs_scan', 'level': 'requires_approval',
+                    'decision': 'review', 'model_decision': None, 'confidence': None,
+                    'event_id': None,
+                    'blocked_patterns': list(_rfs['blocked_patterns'])[:6],
+                    'reasons': list(_rfs['reasons'])[:4],
+                },
             }
 
     # ------------------------------------------------------------------
@@ -168,6 +178,9 @@ def execute(agent: dict, args: dict) -> dict:
 
     # Decim Safety correlation id (internal only; never returned to the caller).
     _decim_event_id = (safety.get('decim_safety') or {}).get('event_id')
+    # Compact, UI-safe provenance for the chat timeline.  The LLM loop pops it
+    # before the result reaches the model or the user-visible output.
+    _safety_prov = verdict_provenance(safety)
 
     if safety['level'] == 'dangerous':
         _update_decim_disposition(_decim_event_id, None, 'blocked')
@@ -177,6 +190,7 @@ def execute(agent: dict, args: dict) -> dict:
             'score': safety['score'],
             'reasons': safety['reasons'],
             'blocked_patterns': safety['blocked_patterns'],
+            '_safety': _safety_prov,
         }
 
     if safety['level'] == 'requires_approval':
@@ -188,6 +202,7 @@ def execute(agent: dict, args: dict) -> dict:
             'reasons': safety['reasons'],
             'blocked_patterns': safety['blocked_patterns'],
             'approval_info': safety['approval_info'],
+            '_safety': _safety_prov,
         }
 
     if safety['level'] == 'warning':
@@ -201,7 +216,8 @@ def execute(agent: dict, args: dict) -> dict:
 
     env = args.get('env') or {}
     if not isinstance(env, dict):
-        return {'error': "'env' must be an object (dict) of string key-value pairs."}
+        return {'error': "'env' must be an object (dict) of string key-value pairs.",
+                '_safety': _safety_prov}
 
     # Auto-inject agent variables as environment variables (base layer).
     # LLM-specified env takes priority over agent variables.
@@ -209,7 +225,7 @@ def execute(agent: dict, args: dict) -> dict:
 
     env, err = validate_env_keys(env)
     if err:
-        return {'error': err}
+        return {'error': err, '_safety': _safety_prov}
 
     # ------------------------------------------------------------------
     # Dispatch to active backend
@@ -235,6 +251,11 @@ def execute(agent: dict, args: dict) -> dict:
             }
     except Exception:
         pass  # Never let job tracking break command execution
+
+    # Provenance travels out-of-band: the LLM loop pops `_safety` before the
+    # result is serialized for the model or the user.
+    if isinstance(result, dict):
+        result['_safety'] = _safety_prov
     return result
 
 

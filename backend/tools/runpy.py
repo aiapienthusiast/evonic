@@ -75,7 +75,9 @@ def execute(agent_context: dict, args: dict) -> dict:
     # ------------------------------------------------------------------
     # HMADS safety check (pipeline: system rules + optional Decim Safety)
     # ------------------------------------------------------------------
-    from backend.tools.lib.safety_pipeline import get_safety_pipeline, should_skip_safety
+    from backend.tools.lib.safety_pipeline import (
+        get_safety_pipeline, should_skip_safety, verdict_provenance,
+    )
 
     # Exact-boolean trusted replay: only server-owned `_skip_safety is True`
     # bypasses safety (set after human approval).  User/LLM truthy values never do.
@@ -87,6 +89,9 @@ def execute(agent_context: dict, args: dict) -> dict:
 
     # Decim Safety correlation id (internal only; never returned to the caller).
     _decim_event_id = (safety.get('decim_safety') or {}).get('event_id')
+    # Compact, UI-safe provenance for the chat timeline.  The LLM loop pops it
+    # before the result reaches the model or the user-visible output.
+    _safety_prov = verdict_provenance(safety)
 
     if safety['level'] == 'dangerous':
         _update_decim_disposition(_decim_event_id, disposition='blocked')
@@ -96,6 +101,7 @@ def execute(agent_context: dict, args: dict) -> dict:
             'score': safety['score'],
             'reasons': safety['reasons'],
             'blocked_patterns': safety['blocked_patterns'],
+            '_safety': _safety_prov,
         }
 
     if safety['level'] == 'requires_approval':
@@ -107,6 +113,7 @@ def execute(agent_context: dict, args: dict) -> dict:
             'reasons': safety['reasons'],
             'blocked_patterns': safety['blocked_patterns'],
             'approval_info': safety['approval_info'],
+            '_safety': _safety_prov,
         }
 
     if safety['level'] == 'warning':
@@ -120,7 +127,8 @@ def execute(agent_context: dict, args: dict) -> dict:
 
     env = args.get('env') or {}
     if not isinstance(env, dict):
-        return {'error': "'env' must be an object (dict) of string key-value pairs."}
+        return {'error': "'env' must be an object (dict) of string key-value pairs.",
+                '_safety': _safety_prov}
 
     # Auto-inject agent variables as environment variables (base layer).
     # LLM-specified env takes priority over agent variables.
@@ -128,7 +136,7 @@ def execute(agent_context: dict, args: dict) -> dict:
 
     env, err = validate_env_keys(env)
     if err:
-        return {'error': err}
+        return {'error': err, '_safety': _safety_prov}
 
     # ------------------------------------------------------------------
     # Dispatch to active backend
@@ -138,6 +146,11 @@ def execute(agent_context: dict, args: dict) -> dict:
 
     # Best-effort lifecycle disposition for Decim telemetry (internal only).
     _update_decim_disposition(_decim_event_id, result)
+
+    # Provenance travels out-of-band: the LLM loop pops `_safety` before the
+    # result is serialized for the model or the user.
+    if isinstance(result, dict):
+        result['_safety'] = _safety_prov
     return result
 
 
