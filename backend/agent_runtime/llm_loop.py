@@ -1027,7 +1027,6 @@ def run_tool_loop(agent: Dict[str, Any],
     # Overflow recovery is derived from the effective payload and consumed by the
     # next provider attempt without mutating the canonical transcript.
     _overflow_request = None
-    _overflow_fingerprints = set()
 
     # Build param view-type lookup: {fn_name: {param_name: view_type}}
     _param_type_map = {}
@@ -1638,39 +1637,56 @@ def run_tool_loop(agent: Dict[str, Any],
                     'error_type': 'context_compaction',
                     'user_message': 'Conversation is too long, automatically compacting...',
                 })
-                # Never use a fixed tail or an unbudgeted summarizer call here.
-                # Re-plan the exact provider payload with a stricter margin; this
-                # is deterministic, protocol-safe, and leaves canonical history intact.
-                from backend.agent_runtime.request_budget import plan_request
-                _retry_plan = plan_request(
-                    _request.messages, _request.tools,
-                    tool_choice=_required_tool if _required_tool_pending else None,
-                    context_window=(agent_model_config or {}).get('context_window'),
-                    max_tokens=(agent_model_config or {}).get('max_tokens'),
-                    thinking_budget=((agent_model_config or {}).get('thinking_budget')
-                                     if _enable_thinking_this_call else 0),
-                    safety_margin=max(REQUEST_BUDGET_SAFETY_MARGIN * 2, 1024),
-                    enforce=True, force_reduction=True,
+                # Compact the payload that actually overflowed. The canonical
+                # transcript remains available for persistence, UI, and auditing.
+                _compacted = _emergency_compact_messages(
+                    messages=_request.messages,
+                    llm=llm,
+                    llm_lock=llm_lock,
+                    session_id=session_id,
+                    agent_id=agent_id,
                 )
-                _previous_size = _request.effective_message_tokens + _request.effective_tool_tokens
-                _retry_size = _retry_plan.estimated_tokens
-                if (_retry_plan.fit and _retry_plan.fingerprint not in _overflow_fingerprints
-                        and _retry_size < _previous_size):
-                    _overflow_fingerprints.add(_retry_plan.fingerprint)
+                if _compacted is not None:
                     _overflow_request = _request.derive(
-                        messages=_retry_plan.messages, tools=_retry_plan.tools,
-                        path='context_overflow_budget_retry')
+                        messages=_compacted, path='context_overflow_retry')
                     event_stream.emit('llm_retry', {
                         'agent_id': agent_id, 'session_id': session_id,
                         'external_user_id': external_user_id, 'channel_id': channel_id,
                         'retry_count': 1, 'max_retries': 1,
-                        'error_type': 'context_budget_retry',
-                        'request_fingerprint': _retry_plan.fingerprint,
+                        'error_type': 'context_compaction',
+                        'user_message': 'Summary complete, resuming...',
                         'effective_request': _overflow_request.metrics(),
                     })
                     continue
-                _logger.warning('context overflow cannot be monotonically reduced session=%s fingerprint=%s',
-                                session_id, _retry_plan.fingerprint)
+                # Compaction failed: derive a protocol-safe last-ditch truncation
+                # from the same effective payload, never from canonical history.
+                event_stream.emit('llm_retry', {
+                    'agent_id': agent_id, 'session_id': session_id,
+                    'external_user_id': external_user_id, 'channel_id': channel_id,
+                    'retry_count': 0, 'max_retries': 1,
+                    'error_type': 'context_compaction',
+                    'user_message': 'Compaction did not reduce enough. Trying fallback truncation...',
+                })
+                _sys_msgs = [m for m in _request.messages if m.get('role') == 'system']
+                _conv_msgs = [m for m in _request.messages if m.get('role') != 'system']
+                _keep_n = 6
+                if len(_conv_msgs) > _keep_n:
+                    _truncated = _sys_msgs + _conv_msgs[-_keep_n:]
+                    _truncated.append({
+                        'role': 'system',
+                        'content': (
+                            "[SYSTEM] The conversation was truncated because it grew "
+                            "too large for the model's context window. The most recent "
+                            "messages have been preserved. Please continue.")})
+                    _overflow_request = _request.derive(
+                        messages=_truncated, path='context_overflow_truncation')
+                    _logger.warning(
+                        "Emergency request truncation applied for session %s: %d -> %d messages",
+                        session_id, len(_request.messages), len(_truncated))
+                    continue
+                # A no-op truncation falls through to the fallback model, which
+                # reuses this request snapshot rather than restoring canonical data.
+
 
             if _compaction_attempted:
                 event_stream.emit('llm_retry', {
