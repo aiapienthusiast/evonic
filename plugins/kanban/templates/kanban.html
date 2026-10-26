@@ -31,8 +31,8 @@ html.dark .kb-enhance-btn:hover { background: rgba(79, 70, 229, 0.28); }
 }
 
 /* Clickable elements always show a pointer cursor */
-#kb-modal button:not(:disabled), #kb-detail-modal button:not(:disabled), #kb-modal select, #kb-modal label[for], #kb-detail-modal label[for], #kb-modal [onclick], #kb-detail-modal [onclick], #task-deps-dropdown li, .kb-tab { cursor: pointer; }
-#kb-modal button:disabled, #kb-detail-modal button:disabled { cursor: not-allowed; }
+button:not(:disabled), [role="button"], summary, select, #kb-modal select, #kb-modal label[for], #kb-detail-modal label[for], #kb-modal [onclick], #kb-detail-modal [onclick], #task-deps-dropdown li, .kb-tab { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
 
 /* Markdown rendering in comments */
 .kb-markdown > :first-child { margin-top: 0; }
