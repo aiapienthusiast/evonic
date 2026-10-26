@@ -523,58 +523,69 @@ class ChatLog:
 # ------------------------------------------------------------------
 
 def _fix_interleaved_user_messages(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Fix user/system messages recorded between a tool_call and its tool_output.
+    """Fix non-tool messages recorded between a tool_call and its tool_output.
 
     When a user sends a message while a tool is still executing, the chatlog records
     the user message before the tool_output (by wall-clock order). But the LLM
     actually received them in the opposite order: tool result first, then user message
     on the next iteration. Reorder so tool responses immediately follow their
     assistant/tool_calls message, with deferred user/system messages placed after.
+
+    Plain assistant text messages (no ``tool_calls``) are deferred for the same
+    reason. The runtime echoes a ``final`` row for tools that produce a
+    user-visible message (e.g. ``send_file``'s attachment note) at the moment the
+    tool runs, which is *inside* the still-open batch. Reconstructing that row in
+    place splits ``assistant(tool_calls)`` from its results and the provider (and
+    ``validate_tool_pairs``) rejects the payload as out-of-order — permanently,
+    because the row order lives in the persisted transcript.
+
+    Synthetic results for genuinely missing outputs are emitted in *declared*
+    call order (never set-iteration order, which is hash-seed dependent) and real
+    results are restored to declared order as well.
     """
     result: List[Dict[str, Any]] = []
     i = 0
     while i < len(msgs):
         msg = msgs[i]
         if msg.get('role') == 'assistant' and msg.get('tool_calls'):
-            tc_ids = {tc['id'] for tc in msg.get('tool_calls', [])}
+            declared_ids = [tc.get('id') for tc in msg.get('tool_calls', []) if tc.get('id')]
+            tc_ids = set(declared_ids)
             j = i + 1
             deferred: List[Dict[str, Any]] = []
-            tool_responses: List[Dict[str, Any]] = []
-            found_ids: set = set()
+            responses: Dict[str, Dict[str, Any]] = {}
             while j < len(msgs):
                 next_msg = msgs[j]
                 next_role = next_msg.get('role', '')
                 next_tc_id = next_msg.get('tool_call_id', '')
-                if next_role == 'tool' and next_tc_id in tc_ids:
-                    tool_responses.append(next_msg)
-                    found_ids.add(next_tc_id)
+                if next_role == 'tool' and next_tc_id in tc_ids and next_tc_id not in responses:
+                    responses[next_tc_id] = next_msg
                     j += 1
-                elif next_role in ('user', 'system'):
-                    # Defer: user/system message was recorded out-of-order due to
-                    # mid-execution injection. This can happen before ANY tool response
-                    # OR between tool responses (e.g., tc1 done, user sends message,
-                    # tc2 still running). Always defer to after all tool responses so
-                    # the API sees tool messages immediately following the tool_calls
+                elif next_role in ('user', 'system') or (
+                        next_role == 'assistant' and not next_msg.get('tool_calls')):
+                    # Defer: recorded out-of-order due to mid-execution injection or a
+                    # tool that echoed an assistant message while the batch was open.
+                    # This can happen before ANY tool response OR between tool
+                    # responses (e.g., tc1 done, user sends message, tc2 still
+                    # running). Always defer to after all tool responses so the API
+                    # sees tool messages immediately following the tool_calls
                     # assistant message.
                     deferred.append(next_msg)
                     j += 1
                 else:
                     break
-                if found_ids == tc_ids:
+                if len(responses) == len(tc_ids):
                     break  # All expected tool responses collected
             # If some tool responses are missing (agent interrupted before recording
             # outputs, or history limit cut them off), inject synthetic error
             # responses so the API contract is satisfied: every tool_call_id in the
             # assistant message must have a corresponding tool response.
-            missing_ids = tc_ids - found_ids
-            for mid in missing_ids:
-                tool_responses.append({
+            result.append(msg)
+            for mid in declared_ids:
+                result.append(responses.get(mid) or {
                     'role': 'tool',
                     'tool_call_id': mid,
                     'content': '{"error": "Tool execution was interrupted before completion."}',
                 })
-            result.append(msg)
-            result.extend(tool_responses)
             result.extend(deferred)
             i = j
         else:

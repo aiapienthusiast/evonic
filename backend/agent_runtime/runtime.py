@@ -53,6 +53,77 @@ _LOGS_DIR = os.path.join(_BASE_DIR, 'logs')
 
 _logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Deferred chatlog echoes (tool-batch ordering guard)
+# ---------------------------------------------------------------------------
+# Some tools echo a user-visible assistant message into the chatlog while they
+# run: send_file records the attachment note, and send_channel_message-style
+# tools do the same. Those writes happen *inside* an open tool batch, so the
+# echoing `final` row used to land between the assistant `tool_call` row and the
+# `tool_output` row it belongs to. History reconstruction then produced
+#
+#     assistant(tool_calls=[A,B]) , assistant(text) , tool(A) , ...
+#
+# which the provider (and validate_tool_pairs) rejects as out-of-order. Because
+# the row order is persisted, the defect stuck for every later turn.
+#
+# The loop now marks the batch (begin/end) and the echo is queued here instead;
+# end_tool_batch() flushes the queue after the batch's tool_output rows, so the
+# transcript and the provider payload always agree on "results first, prose
+# after". State is module-level (keyed by agent/session) because parallel tool
+# execution runs on worker threads.
+_ECHO_LOCK = threading.Lock()
+_ECHO_OPEN: set = set()
+_ECHO_PENDING: Dict[tuple, List[Dict[str, Any]]] = {}
+
+
+def _echo_key(agent_id: str, session_id: str) -> tuple:
+    return (agent_id, session_id)
+
+
+def begin_tool_batch(agent_id: str, session_id: str) -> None:
+    """Mark a tool batch as open for this session.
+
+    Batches never nest, so this is idempotent rather than counting: if a batch
+    was left open by an aborted turn, the next begin repairs the state. Any
+    echoes still queued from that aborted batch are flushed by the next
+    end_tool_batch(), i.e. after a real batch's tool_output rows.
+    """
+    with _ECHO_LOCK:
+        _ECHO_OPEN.add(_echo_key(agent_id, session_id))
+
+
+def end_tool_batch(agent_id: str, session_id: str) -> int:
+    """Close a tool batch and append any echoes deferred while it was open."""
+    key = _echo_key(agent_id, session_id)
+    with _ECHO_LOCK:
+        _ECHO_OPEN.discard(key)
+        pending = _ECHO_PENDING.pop(key, [])
+    if not pending:
+        return 0
+    log = chatlog_manager.get(agent_id, session_id)
+    for entry in pending:
+        log.append(entry)
+    return len(pending)
+
+
+def append_or_defer_chatlog_echo(agent_id: str, session_id: str,
+                                 entry: Dict[str, Any]) -> None:
+    """Append an assistant chatlog echo, or defer it until the batch closes."""
+    key = _echo_key(agent_id, session_id)
+    with _ECHO_LOCK:
+        if key in _ECHO_OPEN:
+            _ECHO_PENDING.setdefault(key, []).append(entry)
+            return
+        # Outside a batch: also drain anything stranded by an aborted batch so
+        # the row is never lost, even if no later end_tool_batch() runs.
+        stale = _ECHO_PENDING.pop(key, [])
+    log = chatlog_manager.get(agent_id, session_id)
+    for pending_entry in stale:
+        log.append(pending_entry)
+    log.append(entry)
+
+
 # Image-embed detection for external channels (web renders these fine; chat
 # clients like WhatsApp/Telegram/Discord do not). Used by the final-message
 # safety net in AgentRuntime._strip_media_embeds().
@@ -3200,8 +3271,9 @@ class AgentRuntime:
             metadata={'attachment_info': attachment_info},
         )
         message_id = message_id if type(message_id) in (int, str) else None
-        chatlog = chatlog_manager.get(agent_id, session_id)
-        chatlog.append({
+        # Deferred when a tool batch is open: an assistant text row between a
+        # tool_call and its tool_output corrupts history reconstruction.
+        append_or_defer_chatlog_echo(agent_id, session_id, {
             'type': 'final',
             'session_id': session_id,
             'content': content,

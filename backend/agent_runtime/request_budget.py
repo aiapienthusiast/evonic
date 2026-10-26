@@ -11,7 +11,9 @@ import json
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence
 
-from backend.agent_runtime.active_context import _collect_groups, _eligible, validate_tool_pairs
+from backend.agent_runtime.active_context import (
+    _collect_groups, _eligible, repair_tool_pairs, validate_tool_pairs,
+)
 from backend.llm_usage_events import estimate_context_tokens, estimate_tokens
 
 _DEFAULT_CONTEXT_WINDOW = 128000
@@ -106,12 +108,28 @@ def plan_request(messages: Sequence[Dict[str, Any]], tools: Optional[Sequence[Di
     budget = max(0, capacity - output - thinking - protocol - multimodal - safety)
     stage = "initial"
     diagnostic = None
+
+    def _protocol_reject(reject_stage: str) -> RequestBudgetPlan:
+        """Report a structural protocol defect -- never a size verdict."""
+        _estimated = estimate_context_tokens(copied_messages, copied_tools) + estimate_tokens(json.dumps(tool_choice, default=str))
+        return RequestBudgetPlan(copied_messages, copied_tools or None, tool_choice, capacity, budget, _estimated, output, thinking, protocol, multimodal, safety, reject_stage, False, "invalid_tool_protocol", _fingerprint(copied_messages, copied_tools, tool_choice, capacity, reject_stage))
+
     try:
         validate_tool_pairs(copied_messages, allow_unresolved=False)
-    except ValueError as exc:
-        diagnostic = "invalid_tool_protocol"
-        estimated = estimate_context_tokens(copied_messages, copied_tools) + estimate_tokens(json.dumps(tool_choice, default=str))
-        return RequestBudgetPlan(copied_messages, copied_tools or None, tool_choice, capacity, budget, estimated, output, thinking, protocol, multimodal, safety, stage, False, diagnostic, _fingerprint(copied_messages, copied_tools, tool_choice, capacity, stage))
+    except ValueError:
+        # Protocol invalidity is a structural defect, not a token-budget
+        # condition. Conflating the two made every caller surface a misleading
+        # "exceeds the safe context budget" message while the request was using
+        # a few percent of the window. Attempt one deterministic repair pass on
+        # this provider-bound copy and re-validate; only report the distinct
+        # diagnostic when the history cannot be repaired.
+        if not repair_tool_pairs(copied_messages):
+            return _protocol_reject("invalid_tool_protocol")
+        try:
+            validate_tool_pairs(copied_messages, allow_unresolved=False)
+        except ValueError:
+            return _protocol_reject("invalid_tool_protocol_after_repair")
+        stage = "tool_protocol_repair"
     while True:
         estimated = estimate_context_tokens(copied_messages, copied_tools) + estimate_tokens(json.dumps(tool_choice, default=str))
         if not enforce or (estimated <= budget and not force_reduction):
