@@ -41,15 +41,26 @@ MAX_COMMAND_PREVIEW = 1000
 _TRUNCATION_MARK = "… [truncated]"
 _REDACTED = "[REDACTED]"
 
+# Credential-bearing key names.  A shell environment variable carries an
+# arbitrary identifier prefix/suffix (``PGPASSWORD``, ``MYSQL_PWD``,
+# ``NPM_TOKEN``, ``DOCKER_PASSWORD``, ``AWS_SECRET_ACCESS_KEY``), so anchoring
+# the keyword with ``\b`` misses every one of them: the boundary sits before
+# ``PG``, not before ``PASSWORD``.  Allow identifier characters on both sides.
+_KEY_NAME = (
+    r"(?:pass(?:word|wd|phrase)?|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|credential)"
+)
+_KEY_ASSIGNMENT = (
+    r"(?i)(?<![A-Za-z0-9])([A-Za-z0-9_.-]*" + _KEY_NAME + r"[A-Za-z0-9_.-]*)"
+    r"(\s*[:=]\s*)(\"[^\"]*\"|'[^']*'|`[^`]*`|[^\s;&|]+)"
+)
+
 _SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    # password=..., token=..., api_key=..., secret=..., AWS_SECRET_ACCESS_KEY=..., GH_TOKEN=...
+    # password=..., PGPASSWORD=..., MYSQL_PWD=..., NPM_TOKEN=..., api_key=..., ...
+    (re.compile(_KEY_ASSIGNMENT), r"\1\2" + _REDACTED),
+    # --password value / --password=value / --npm-token value / --api-key=value
     (re.compile(
-        r"(?i)\b(pass(?:word|wd|phrase)?|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|"
-        r"secret[_-]?access[_-]?key|client[_-]?secret|auth[_-]?token|gh[_-]?token|aws[_-]?secret[_-]?access[_-]?key)"
-        r"(\s*[:=]\s*)(\"[^\"]*\"|'[^']*'|`[^`]*`|[^\s;&|]+)"),
-     r"\1\2" + _REDACTED),
-    # --password value / --password=value / --token value
-    (re.compile(r"(?i)(--(?:pass(?:word|wd)?|token|api[-_]?key|secret)(?:=|\s+))(\"[^\"]*\"|'[^']*'|[^\s]+)"),
+        r"(?i)(--[a-z0-9-]*(?:pass(?:word|wd)?|token|api[-_]?key|secret)[a-z0-9-]*(?:=|\s+))"
+        r"(\"[^\"]*\"|'[^']*'|[^\s]+)"),
      r"\1" + _REDACTED),
     # mysql style -pSECRET (no space)
     (re.compile(r"(?i)(\bmysql\b[^\n]*?\s-p)([^\s]+)"), r"\1" + _REDACTED),
@@ -66,18 +77,51 @@ _SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 ]
 
 
+def _redact(text: str) -> str:
+    """Apply every credential pattern.  Idempotent."""
+    for pattern, repl in _SECRET_PATTERNS:
+        text = pattern.sub(repl, text)
+    return text
+
+
+def _cut_without_splitting_marker(text: str, keep: int) -> str:
+    """Truncate at *keep* without leaving a half-written ``[REDACTED]``.
+
+    A dangling prefix (``[REDACTE``) is indistinguishable from an unredacted
+    value to the assignment pattern, so a later redaction pass would rewrite it
+    and inflate the preview.  Trimming the partial marker first keeps the second
+    pass a genuine no-op.
+    """
+    cut = text[:keep]
+    for size in range(len(_REDACTED) - 1, 0, -1):
+        if cut.endswith(_REDACTED[:size]):
+            return cut[:-size].rstrip()
+    return cut.rstrip()
+
+
 def command_preview(code: str | None, *, limit: int = MAX_COMMAND_PREVIEW) -> str:
-    """Return a bounded, credential-redacted preview of the executed code."""
+    """Return a bounded, credential-redacted preview of the executed code.
+
+    Redaction runs **before** truncation.  Cutting first can slice through a
+    credential and leave an unquoted fragment that no pattern matches any more,
+    leaking the leading part of the secret; credentials that rely on both
+    delimiters (PEM key blocks, ``scheme://user:pass@host``) leak wholesale.
+    The full text is therefore redacted while it is still intact, and a second
+    pass runs on the surviving fragment so a cut that lands on a pattern
+    boundary still cannot expose anything.
+    """
     if not code:
         return ""
     text = " ".join(str(code).split())
     if not text:
         return ""
+    text = _redact(text)
     if len(text) > limit:
         keep = max(0, limit - len(_TRUNCATION_MARK))
-        text = text[:keep].rstrip() + _TRUNCATION_MARK
-    for pattern, repl in _SECRET_PATTERNS:
-        text = pattern.sub(repl, text)
+        body = _redact(_cut_without_splitting_marker(text, keep))
+        # Hard cap.  After the full-text pass this can only bite if a rewrite
+        # grew the body, which means the boundary was unsafe anyway.
+        text = body[:keep].rstrip() + _TRUNCATION_MARK
     return text
 
 

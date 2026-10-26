@@ -41,9 +41,22 @@ MAX_RESPONSE_BYTES = 64 * 1024
 # Obvious secret-bearing markers.  When any of these is present the payload is
 # *not* sent to a provider (redaction could change executable semantics), and the
 # caller falls back to deterministic safety with reason ``sensitive_payload``.
+#
+# The name of a shell credential variable is an *identifier*, not a bare keyword:
+# ``PGPASSWORD=``, ``MYSQL_PWD=``, ``NPM_TOKEN=``, ``DOCKER_PASSWORD=``,
+# ``AWS_SECRET_ACCESS_KEY=``.  A ``\b`` anchor before the keyword never fires on
+# those (the boundary sits before ``PG``), so identifier characters are allowed
+# on both sides of it.  Over-matching is safe here by construction: a false
+# positive only routes the payload to the deterministic checker instead of the
+# provider, whereas a false negative ships a live secret to a third party.
 _SECRET_PATTERN = re.compile(
-    r"(?ix)(?:\b(?:api[_-]?key|token|password|secret|authorization)\b\s*(?:=|:)\s*|"
-    r"\b(?:sk|ghp|github_pat)_[a-z0-9_-]{12,}|-----BEGIN [A-Z ]+PRIVATE KEY-----)"
+    r"(?ix)(?:"
+    r"(?<![a-z0-9])[a-z0-9_.-]*(?:api[_-]?key|token|password|passwd|pwd|secret|"
+    r"authorization|credential)[a-z0-9_.-]*\s*(?:=|:)\s*"
+    r"|\b(?:sk|ghp|gho|github_pat|glpat|npm|xox[baprs])[_-][a-z0-9_-]{12,}"
+    r"|-----BEGIN [A-Z ]+PRIVATE KEY-----"
+    r"|\b[a-z][a-z0-9+.-]*://[^\s:/@]+:[^\s@/]+@"
+    r")"
 )
 
 __all__ = [
