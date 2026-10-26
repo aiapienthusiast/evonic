@@ -227,6 +227,106 @@ def test_adapter_takes_conservative_confidence_from_probabilities():
     assert decision.confidence == pytest.approx(0.55)
 
 
+def test_adapter_prefers_answer_confidence_over_entropy_confidence():
+    """`confidence` on a Laya-shaped response is entropy, not max(p).
+
+    Gating on the entropy number would demand max(p) of roughly 0.98 for a
+    three-option question, so the calibrated `answer_confidence` must win.
+    Values below are a real response for `rm -rf /var/www/html`.
+    """
+    import json
+    payload = json.dumps({
+        "answers": {"decision": {
+            "type": "choice",
+            "choice": "block",
+            "probabilities": {"allow": 0.3233, "review": 0.0266, "block": 0.65},
+            "confidence": 0.325,
+            "answer_confidence": 0.65,
+        }},
+        "usage": {"truncated": False, "state_tokens_dropped": 0},
+    }).encode()
+    decision = _adapter(_FakeTransport(payload)).decide(
+        build_policy_packet("echo hi", "bash", "sandboxed_docker", 12000), _settings())
+    assert decision.decision == "block"
+    assert decision.confidence == pytest.approx(0.65)
+
+
+def test_adapter_still_minimises_answer_confidence_against_distribution():
+    """A provider cannot report more confidence than its own probabilities."""
+    import json
+    payload = json.dumps({
+        "answers": {"decision": {
+            "choice": "allow",
+            "confidence": 0.99,
+            "answer_confidence": 0.99,
+            "probabilities": {"allow": 0.55, "review": 0.25, "block": 0.20},
+        }},
+    }).encode()
+    decision = _adapter(_FakeTransport(payload)).decide(
+        build_policy_packet("echo hi", "bash", "sandboxed_docker", 12000), _settings())
+    assert decision.confidence == pytest.approx(0.55)
+
+
+def test_adapter_tolerates_rounded_probability_sum():
+    """Four-decimal rounding can push a valid distribution just over 1.0."""
+    import json
+    payload = json.dumps({
+        "answers": {"decision": {
+            "choice": "block",
+            "probabilities": {"allow": 0.3334, "review": 0.3333, "block": 0.3334},
+        }},
+    }).encode()
+    decision = _adapter(_FakeTransport(payload)).decide(
+        build_policy_packet("echo hi", "bash", "sandboxed_docker", 12000), _settings())
+    assert decision.decision == "block"
+
+
+def test_adapter_abstains_when_provider_truncated_the_state():
+    """A decision read from a partial state must not be trusted.
+
+    The tail of a script is right-truncated, and that is exactly where a
+    destructive command usually sits.
+    """
+    import json
+    payload = json.dumps({
+        "answers": {"decision": {"choice": "allow", "confidence": 0.99,
+                                 "probabilities": {"allow": 0.99}}},
+        "usage": {"truncated": True, "state_tokens_dropped": 169},
+    }).encode()
+    with pytest.raises(DecimProviderError) as exc:
+        _adapter(_FakeTransport(payload)).decide(
+            build_policy_packet("echo hi", "bash", "sandboxed_docker", 12000), _settings())
+    assert exc.value.category == "truncated_state"
+
+
+def test_adapter_abstains_when_dropped_tokens_reported_without_flag():
+    """`state_tokens_dropped` alone is enough; the boolean may be absent."""
+    import json
+    payload = json.dumps({
+        "answers": {"decision": {"choice": "allow", "confidence": 0.99,
+                                 "probabilities": {"allow": 0.99}}},
+        "usage": {"state_tokens_dropped": 827},
+    }).encode()
+    with pytest.raises(DecimProviderError) as exc:
+        _adapter(_FakeTransport(payload)).decide(
+            build_policy_packet("echo hi", "bash", "sandboxed_docker", 12000), _settings())
+    assert exc.value.category == "truncated_state"
+
+
+def test_resolver_falls_back_when_state_was_truncated():
+    class _TruncatingProvider:
+        key = "systemone"
+
+        def decide(self, packet, settings):
+            raise DecimProviderError("truncated_state")
+
+    resolver = DecimSafetyResolver({"systemone": _TruncatingProvider()})
+    result = resolver.resolve("echo hi", "bash", {}, _settings(mode="enforce"))
+    assert result.attempted is True
+    assert result.decision is None
+    assert result.fallback_reason == "truncated_state"
+
+
 def test_adapter_rejects_malformed_response():
     with pytest.raises(DecimProviderError) as exc:
         _adapter(_FakeTransport(b"not-json")).decide(

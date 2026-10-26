@@ -315,6 +315,28 @@ def _coerce_probability(value: Any) -> float | None:
     return prob
 
 
+def _preferred_reported_confidence(confidence: Any, answer_confidence: Any) -> Any:
+    """Pick the provider field that means "probability of the reported answer".
+
+    Not every provider defines ``confidence`` the same way.  Laya's ``confidence``
+    is normalized Shannon entropy (``1 - H/log k``), which is a *different scale*
+    from a choice probability: for a three-option question it only reaches ``>=
+    0.90`` when ``max(p)`` is already about ``0.98``, so gating on it makes the
+    provider abstain on nearly every decision while still looking healthy.  The
+    same response carries ``answer_confidence``, documented by Laya as exactly
+    ``max(p)`` and as the field its own ``min_confidence`` gate is defined
+    against.
+
+    When a response offers ``answer_confidence`` it therefore *replaces*
+    ``confidence`` as the reported signal instead of being added to it: taking
+    the minimum of both would let the differently-scaled entropy number dominate.
+    Both fields still pass through the selected-choice minimum below, so a
+    provider cannot inflate either one above its own distribution.
+    """
+    calibrated = _coerce_probability(answer_confidence)
+    return answer_confidence if calibrated is not None else confidence
+
+
 def _conservative_confidence(reported: Any, probabilities: Any, choice: str,
                              selected_probability: Any) -> float:
     """Compute a conservative confidence from any combination of signals.
@@ -333,8 +355,11 @@ def _conservative_confidence(reported: Any, probabilities: Any, choice: str,
             values.append(prob)
             if key == choice:
                 selected = prob
-        # A coherent distribution must not sum beyond 1 (allow tiny rounding).
-        if values and sum(values) > 1.0 + 1e-6:
+        # A coherent distribution must not sum beyond 1.  Providers round the
+        # per-option values before serialising (Laya reports 4 decimal places),
+        # so three options can legitimately sum to 1.0001: allow for accumulated
+        # rounding instead of rejecting a valid distribution.
+        if values and sum(values) > 1.0 + 1e-3:
             raise DecimProviderError("invalid_response")
     reported_value = _coerce_probability(reported)
     candidates = [value for value in (reported_value, selected) if value is not None]
@@ -356,6 +381,29 @@ def _parse_reason(answer: dict[str, Any]) -> str | None:
     return reason.strip()[:MAX_REASON_CHARS]
 
 
+def _response_state_was_truncated(data: dict[str, Any]) -> bool:
+    """Report whether the provider had to cut the state before deciding.
+
+    A decision model only sees the tokens that fit its budget, and the models we
+    target truncate the *right* side of a string state: the tail is what is
+    dropped.  For a shell command the destructive part is very often the last
+    thing in the script, so a truncated state can be answered ``allow`` purely
+    because the dangerous tail was never read.  Confidently deciding on a
+    partial payload is worse than not deciding at all, so this is surfaced as a
+    provider failure and the caller falls back to deterministic safety.
+
+    ``usage`` is optional: providers that report nothing keep their existing
+    behaviour, and only an explicit truncation fact triggers abstention.
+    """
+    usage = data.get("usage")
+    if not isinstance(usage, dict):
+        return False
+    dropped = usage.get("state_tokens_dropped")
+    if isinstance(dropped, int) and not isinstance(dropped, bool) and dropped > 0:
+        return True
+    return usage.get("truncated") is True
+
+
 def _parse_decision_answer(data: Any) -> tuple[str, float, str | None, str | None]:
     """Parse a SystemOne/Nimble-style typed choice response.
 
@@ -364,6 +412,10 @@ def _parse_decision_answer(data: Any) -> tuple[str, float, str | None, str | Non
     """
     if not isinstance(data, dict):
         raise DecimProviderError("invalid_response")
+    # Checked before the answer is read: a choice made from a partial state is
+    # not evidence about the payload we actually asked about.
+    if _response_state_was_truncated(data):
+        raise DecimProviderError("truncated_state")
     answers = data.get("answers")
     if not isinstance(answers, dict):
         raise DecimProviderError("invalid_response")
@@ -376,7 +428,7 @@ def _parse_decision_answer(data: Any) -> tuple[str, float, str | None, str | Non
         raise DecimProviderError("invalid_response")
 
     confidence = _conservative_confidence(
-        answer.get("confidence"),
+        _preferred_reported_confidence(answer.get("confidence"), answer.get("answer_confidence")),
         answer.get("probabilities") or answer.get("candidates"),
         choice,
         answer.get("probability"),
