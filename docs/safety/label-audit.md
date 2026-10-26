@@ -83,6 +83,18 @@ the rubric scores them `safe`/`warning`.
 Consequence: the positive class has to be **constructed**, and the pipeline has to start
 recording refusals or the next export will look exactly like this one.
 
+### Fixed
+
+`SafetyPipeline.record_refusal()` now writes an event when the gate stops an execution before
+the Decim comparison runs (`decision_source=hmads`, `final_level` from the verdict, so
+`disposition` becomes `blocked` or `approval_requested`). It deliberately ignores
+`record_enforce_events`: that setting gates comparison *samples*, and a refusal is not a sample —
+sampling it away would blind the system exactly when something was stopped. With safety
+disabled, nothing is recorded, as before.
+
+From the next export onward the refusal stream exists and the synthetic fraction of the corpus
+can be traded for real rows version by version.
+
 ## 5. How the 972 labels were produced
 
 Stratified, not uniform, and the methods are recorded per row so the weaker ones can be dropped:
