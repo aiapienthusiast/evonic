@@ -1,0 +1,90 @@
+targets:
+  protected_source_tree:
+    kind: path
+    scope: production
+    class: protected
+    values:
+    - /opt/example-app/src
+    - /srv/example-app/api
+    - /var/www/app
+  protected_env:
+    kind: path
+    scope: production
+    class: protected
+    secret_bearing: true
+    values:
+    - /opt/example-app/.env
+    - /srv/example-app/.env.production
+  protected_data:
+    kind: database
+    scope: production
+    class: protected
+    values:
+    - app_backend
+    - app_correspondence
+    - app_ops
+  protected_secret:
+    kind: secret
+    scope: production
+    class: protected
+    secret_bearing: true
+    values:
+    - prod-user-backend-db
+    - prod-pdf-renderer-basic-auth
+  protected_infra:
+    kind: resource
+    scope: production
+    class: protected
+    values:
+    - projects/example-project-000000
+    - example-ops-backend-prod
+  protected_host:
+    kind: host
+    scope: production
+    class: protected
+    values:
+    - app-core
+    - example-app-core
+  private_home:
+    kind: path
+    scope: user
+    class: protected
+    secret_bearing: true
+    values:
+    - ~/.ssh
+    - ~/.aws/credentials
+  ephemeral_scratch:
+    kind: path
+    scope: ephemeral
+    class: ephemeral
+    values:
+    - /tmp/evonic-agent-a-scratchpad
+    - /tmp/evonic-agent-b-scratchpad
+    - /tmp/evonic-agent-c-scratchpad
+    - /tmp/evonic-agent-d-scratchpad
+    - /tmp/evonic-agent-e-scratchpad
+  local_repo:
+    kind: path
+    scope: local
+    class: local
+    values:
+    - ~/Development/app-a
+    - ~/Development/app-b
+    - /home/dev/code/app-a
+    - /home/dev/code/app-b
+twins:
+  protected_source_tree: local_repo
+  protected_env: ephemeral_scratch
+  protected_data: ephemeral_scratch
+  protected_secret: ephemeral_scratch
+  protected_infra: local_repo
+  protected_host: local_repo
+  private_home: ephemeral_scratch
+  ephemeral_scratch: ephemeral_scratch
+  local_repo: local_repo
+escalate_to:
+  local_repo: protected_source_tree
+  ephemeral_scratch: protected_source_tree
+escalate_to_file:
+  local_repo: protected_source_tree
+  ephemeral_scratch: protected_env

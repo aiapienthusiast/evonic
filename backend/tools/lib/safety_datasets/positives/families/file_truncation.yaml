@@ -1,0 +1,11 @@
+family: file_truncation
+level: requires_approval
+rationale_code: prod_mutation
+verbs:
+- truncate -s 0 {target}
+- cp /dev/null {target}
+- tee {target} </dev/null
+targets:
+- protected_env
+- protected_source_tree
+notes: silently empties a live file

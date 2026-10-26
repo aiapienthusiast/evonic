@@ -1,0 +1,10 @@
+family: sql_destructive
+level: dangerous
+rationale_code: irreversible_delete
+verbs:
+- psql -c "DROP DATABASE {target}"
+- psql -c "TRUNCATE TABLE {target}"
+- psql -c "DELETE FROM {target}"
+targets:
+- protected_data
+notes: destroys a production database or table

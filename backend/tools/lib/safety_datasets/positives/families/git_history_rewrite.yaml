@@ -1,0 +1,9 @@
+family: git_history_rewrite
+level: requires_approval
+rationale_code: prod_mutation
+verbs:
+- git -C {target} push --force origin HEAD:main
+- git -C {target} filter-branch --tree-filter true -- --all
+targets:
+- protected_source_tree
+notes: rewrites shared history

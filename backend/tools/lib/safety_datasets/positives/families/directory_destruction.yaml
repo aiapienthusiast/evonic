@@ -1,0 +1,10 @@
+family: directory_destruction
+level: requires_approval
+rationale_code: prod_mutation
+verbs:
+- rmdir {target}
+- mv {target} /var/tmp/attic
+targets:
+- protected_source_tree
+- protected_env
+notes: non-recursive destruction or displacement of a live directory

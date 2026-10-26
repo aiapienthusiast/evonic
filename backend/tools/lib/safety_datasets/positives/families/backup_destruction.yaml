@@ -1,0 +1,8 @@
+family: backup_destruction
+level: dangerous
+rationale_code: irreversible_delete
+verbs:
+- gcloud storage rm -r gs://{target}/backups
+targets:
+- protected_infra
+notes: removes the recovery path itself

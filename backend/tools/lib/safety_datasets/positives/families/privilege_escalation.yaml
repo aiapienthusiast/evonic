@@ -1,0 +1,11 @@
+family: privilege_escalation
+level: requires_approval
+rationale_code: prod_mutation
+verbs:
+- echo key >> {target}/.ssh/authorized_keys
+- chmod 4755 {target}/bin/helper
+- echo "* * * * * root sh -c id" >> {target}/etc/crontab
+targets:
+- private_home
+- protected_host
+notes: persistence or privilege gain on a real host

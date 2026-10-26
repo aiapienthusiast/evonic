@@ -1,0 +1,10 @@
+family: disk_overwrite
+level: dangerous
+rationale_code: irreversible_delete
+verbs:
+- dd if=/dev/zero of={target}/blob bs=1M count=8
+- shred -u {target}/archive.tar
+targets:
+- protected_source_tree
+- private_home
+notes: raw write or secure deletion inside a live tree

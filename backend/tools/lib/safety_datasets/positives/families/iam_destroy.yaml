@@ -1,0 +1,9 @@
+family: iam_destroy
+level: requires_approval
+rationale_code: prod_mutation
+verbs:
+- gcloud projects delete {target}
+- gcloud iam service-accounts delete sa-deploy@{target}.iam.gserviceaccount.com
+targets:
+- protected_infra
+notes: removes identity or infrastructure primitives

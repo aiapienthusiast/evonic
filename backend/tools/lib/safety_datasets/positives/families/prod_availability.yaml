@@ -1,0 +1,9 @@
+family: prod_availability
+level: requires_approval
+rationale_code: prod_mutation
+verbs:
+- ssh {target} "sudo systemctl stop postgres"
+- ssh {target} "sudo docker rm -f app"
+targets:
+- protected_host
+notes: takes a production service down

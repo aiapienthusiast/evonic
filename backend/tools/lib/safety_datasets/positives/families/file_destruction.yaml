@@ -1,0 +1,11 @@
+family: file_destruction
+level: dangerous
+rationale_code: irreversible_delete
+verbs:
+- rm -rf {target}
+- rm -r {target}
+- find {target} -delete
+targets:
+- protected_source_tree
+- private_home
+notes: recursive removal of a real tree
