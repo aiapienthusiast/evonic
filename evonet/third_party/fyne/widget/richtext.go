@@ -676,6 +676,24 @@ func (r *textRenderer) Refresh() {
 	bounds := r.obj.rowBounds
 	scroll := r.obj.Scroll
 
+	// Evonet patch: convert each segment's text to []rune at most once per
+	// refresh instead of once per row. Rows are emitted in segment order, so
+	// consecutive rows almost always refer to the same TextSegment (a single
+	// multi-line segment produces one row per line). Converting inside the row
+	// loop made this method O(rows * runes), which froze the GUI when a widget
+	// held a large multi-line segment; with the cache it is O(runes + rows).
+	var (
+		runesSeg *TextSegment
+		segRunes []rune
+	)
+	runesFor := func(seg *TextSegment) []rune {
+		if seg != runesSeg {
+			runesSeg = seg
+			segRunes = []rune(seg.Text)
+		}
+		return segRunes
+	}
+
 	var objs []fyne.CanvasObject
 	for _, bound := range bounds {
 		for i, seg := range bound.segments {
@@ -694,7 +712,7 @@ func (r *textRenderer) Refresh() {
 			seg.Update(obj)
 			txt := obj.(*canvas.Text)
 			textSeg := seg.(*TextSegment)
-			runes := []rune(textSeg.Text)
+			runes := runesFor(textSeg)
 
 			if i == 0 {
 				if len(bound.segments) == 1 {

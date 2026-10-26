@@ -67,6 +67,44 @@ func (b *logBuffer) clear() {
 	b.dirty = false
 }
 
+// renderGate coalesces work handed to the UI thread. At most one render may be
+// pending at a time; while one is pending, newer snapshots simply replace the
+// text that the pending render will draw. This keeps the main-goroutine queue
+// bounded no matter how far the UI thread falls behind: without it every flush
+// queued another closure carrying a full copy of the log (up to maxLines).
+//
+// It holds no reference to the toolkit, so it is unit-testable on every
+// platform, including headless CI.
+type renderGate struct {
+	mu      sync.Mutex
+	latest  string
+	pending bool
+}
+
+// offer records text as the snapshot a pending render must draw. It reports
+// whether the caller has to schedule a render; false means a render is already
+// pending and will pick this snapshot up.
+func (g *renderGate) offer(text string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.latest = text
+	if g.pending {
+		return false
+	}
+	g.pending = true
+	return true
+}
+
+// take returns the newest snapshot and clears the pending flag. It is called on
+// the UI thread, immediately before drawing. Offers that arrive after take
+// schedule a fresh render, so no snapshot is ever dropped.
+func (g *renderGate) take() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.pending = false
+	return g.latest
+}
+
 // logFlusher owns the single goroutine that batches buffered lines and passes
 // the coalesced text to sink. While there is nothing to render the goroutine
 // blocks on a notification channel with no active timer, so an idle writer

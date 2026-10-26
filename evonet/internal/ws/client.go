@@ -213,6 +213,14 @@ func (c *Client) messageLoop() error {
 	conn := c.conn
 	c.mu.Unlock()
 
+	// Release the socket as soon as this loop ends. Run() overwrites c.conn with
+	// the next connection, so without this the previous socket - its file
+	// descriptor, read/write buffers and heartbeat goroutine - is only reclaimed
+	// if the garbage collector eventually finalizes it. A client that reconnects
+	// regularly (liveness timeouts, network changes) would therefore accumulate
+	// one leaked file descriptor per reconnect.
+	defer func() { _ = conn.Close() }()
+
 	// Reply to server pings and extend the liveness deadline for both WebSocket
 	// and application-level pong frames.
 	conn.SetPingHandler(func(data string) error {

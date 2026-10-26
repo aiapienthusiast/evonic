@@ -240,3 +240,49 @@ func TestWebSocketURLUsesConnectorPath(t *testing.T) {
 		t.Fatalf("wsURL() retained HTTP scheme: %q", client.wsURL())
 	}
 }
+
+// TestMessageLoopClosesConnectionWhenItEnds guards against a file-descriptor
+// leak on reconnect: Run() replaces c.conn with the next socket, so the socket
+// used by a finished message loop has to be closed by the loop itself. The test
+// observes the close from the server side, which only happens if the client
+// really closed the TCP connection.
+func TestMessageLoopClosesConnectionWhenItEnds(t *testing.T) {
+	peerClosed := make(chan struct{}, 1)
+	server := newWebSocketServer(t, func(conn *websocket.Conn) {
+		conn.SetPingHandler(func(string) error { return nil }) // suppress pongs
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				select {
+				case peerClosed <- struct{}{}:
+				default:
+				}
+				return
+			}
+		}
+	})
+	defer server.Close()
+
+	client := testClient(t, server.URL, 20*time.Millisecond, 60*time.Millisecond)
+	if err := client.connect(); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer closeClient(client)
+
+	loopDone := make(chan error, 1)
+	go func() { loopDone <- client.messageLoop() }()
+
+	select {
+	case err := <-loopDone:
+		if err == nil {
+			t.Fatal("message loop returned nil after missing pong")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("message loop did not end after the liveness timeout")
+	}
+
+	select {
+	case <-peerClosed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("server still holds the connection open; messageLoop leaked its socket")
+	}
+}

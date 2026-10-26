@@ -290,3 +290,84 @@ func waitForCount(t *testing.T, s *testSink, want int) {
 	}
 	t.Fatalf("timed out waiting for %d flush(es), got %d", want, s.count())
 }
+
+func TestRenderGateAllowsOnlyOnePendingRender(t *testing.T) {
+	var g renderGate
+
+	if !g.offer("first") {
+		t.Fatal("first offer must schedule a render")
+	}
+	if g.offer("second") {
+		t.Fatal("offer while a render is pending must not schedule another")
+	}
+	if got := g.take(); got != "second" {
+		t.Fatalf("pending render drew %q, want the newest snapshot %q", got, "second")
+	}
+}
+
+func TestRenderGateSchedulesAgainAfterTake(t *testing.T) {
+	var g renderGate
+
+	g.offer("first")
+	g.take()
+
+	if !g.offer("second") {
+		t.Fatal("offer after a completed render must schedule a new render")
+	}
+	if got := g.take(); got != "second" {
+		t.Fatalf("got %q, want %q", got, "second")
+	}
+}
+
+// TestRenderGateConcurrentOffers is intended to be run with -race: many
+// flushes may arrive while the UI thread is busy, but exactly one of them
+// schedules a render and the drawn text is always one of the offered ones.
+func TestRenderGateConcurrentOffers(t *testing.T) {
+	var g renderGate
+	const writers = 64
+
+	texts := make([]string, writers)
+	for i := range texts {
+		texts[i] = fmt.Sprintf("snapshot-%d", i)
+	}
+
+	scheduled := make([]bool, writers)
+	var wg sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			scheduled[i] = g.offer(texts[i])
+		}(i)
+	}
+	wg.Wait()
+
+	count := 0
+	for _, ok := range scheduled {
+		if ok {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("%d offers scheduled a render, want exactly 1", count)
+	}
+
+	got := g.take()
+	found := false
+	for _, text := range texts {
+		if text == got {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("drew %q, which was never offered", got)
+	}
+
+	if !g.offer("after") {
+		t.Fatal("offer after take must schedule a render")
+	}
+	if got := g.take(); got != "after" {
+		t.Fatalf("got %q, want %q", got, "after")
+	}
+}

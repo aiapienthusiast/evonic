@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- Fixed the Evonet desktop GUI freezing on macOS during long sessions: the log view kept the entire history in a single rich-text segment and the vendored Fyne re-converted that text once per rendered line, making every refresh quadratic (about 168 ms and 250 MiB at 1,000 lines). The conversion now happens once per segment, and log renders are coalesced so at most one update is queued on the UI thread.
+
 ## [1.5.6] - 2026-10-24
 
 ### Features
